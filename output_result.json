@@ -1,0 +1,79 @@
+{
+  "file_name": "Rishabh_Dinesh_Singh_resume.pdf",
+  "current_step": "complete",
+  "error": null,
+  "parsed_resume": {
+    "contact_info": {
+      "name": "RISHABH DINESH SINGH",
+      "email": "rishabhdineshsingh@gmail.com",
+      "phone": "+1 (857) 693-8587",
+      "linkedin": null,
+      "location": "New York City, NY"
+    },
+    "summary": null,
+    "skills": [],
+    "experience": [],
+    "education": [],
+    "certifications": [],
+    "projects": [
+      "AIssueFlow | GitHub Issue Management using NLP and Vector Search Sep 2023 - Dec 2023"
+    ]
+  },
+  "job_role_matches": [
+    {
+      "role_title": "Machine Learning Engineer",
+      "confidence_score": 0.8,
+      "reasoning": "Rishabh's project experience in AI and GitHub issue management using NLP and vector search demonstrates a strong foundation in machine learning and natural language processing. These skills are highly sought after in the field of machine learning engineering.",
+      "key_matching_skills": [
+        "AI",
+        "NLP",
+        "Vector Search",
+        "GitHub"
+      ]
+    },
+    {
+      "role_title": "Data Scientist",
+      "confidence_score": 0.75,
+      "reasoning": "While Rishabh's project experience is focused on machine learning, the problem-solving and analytical skills required for data science are evident in his work. A transition to a data scientist role could allow him to apply these skills more broadly within the field of data analysis.",
+      "key_matching_skills": [
+        "AI",
+        "NLP",
+        "Data Analysis"
+      ]
+    },
+    {
+      "role_title": "Research Scientist (Machine Learning)",
+      "confidence_score": 0.7,
+      "reasoning": "Rishabh's project experience and technical skills suggest a strong aptitude for research in the field of machine learning. A role as a research scientist would allow him to delve deeper into specific areas of interest and contribute to the broader understanding of machine learning technologies.",
+      "key_matching_skills": [
+        "AI",
+        "NLP",
+        "Research"
+      ]
+    }
+  ],
+  "resume_summary": {
+    "overall_summary": "Rishabh Dinesh Singh is a highly skilled AI professional with experience in AI engineering, data science, and data engineering. He has demonstrated expertise in developing intelligent systems, automating workflows, and improving efficiency through the use of advanced technologies such as NLP, vector search, and Generative AI.",
+    "years_of_experience": 4,
+    "key_strengths": [
+      "AI system architecture",
+      "Natural language processing",
+      "Database integration",
+      "Automation of workflows",
+      "Data analysis and modeling"
+    ],
+    "grammatical_issues": [
+      "Inconsistent formatting in the 'experience' section (some bullet points have colons, some do not)",
+      "Missing periods at the end of sentences in the 'experience' section",
+      "Incorrect date format for the Data Science Co-op experience (should be Month Year - Month Year)"
+    ],
+    "improvement_suggestions": [
+      "Standardize formatting in the 'experience' section to maintain consistency",
+      "Ensure proper punctuation throughout the resume",
+      "Correct the date format for the Data Science Co-op experience",
+      "Consider adding a summary statement at the beginning of the resume to provide an overview of professional goals and achievements",
+      "Expand on the 'skills' section to include specific technical skills relevant to AI, data science, and data engineering"
+    ],
+    "quality_score": 8.0
+  }
+}
