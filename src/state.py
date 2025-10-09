@@ -19,6 +19,7 @@ class Experience(BaseModel):
     company: str = Field(..., description="Company name")
     position: str = Field(..., description="Job position/title")
     duration: str = Field(..., description="Duration of employment")
+    location: str = Field(..., description="Job Location")
     description: List[str] = Field(
         default_factory=list, 
         description="Job responsibilities and achievements"

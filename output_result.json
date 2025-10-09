@@ -7,73 +7,168 @@
       "name": "RISHABH DINESH SINGH",
       "email": "rishabhdineshsingh@gmail.com",
       "phone": "+1 (857) 693-8587",
-      "linkedin": null,
+      "linkedin": "linkedin.com/in/rishabhdineshsingh",
       "location": "New York City, NY"
     },
     "summary": null,
-    "skills": [],
-    "experience": [],
-    "education": [],
+    "skills": [
+      "MS SQL Server",
+      "Oracle",
+      "PostgreSQL",
+      "MySQL",
+      "MongoDB",
+      "AWS Redshift",
+      "Python",
+      "SQL",
+      "PySpark",
+      "Spark",
+      "Scala",
+      "Java",
+      "Shell Script",
+      "Snowflake",
+      "Microsoft Azure",
+      "AWS (Redshift",
+      "Glue)",
+      "Databricks",
+      "Data Build Tool Cloud",
+      "Microsoft PowerBI",
+      "Airbyte",
+      "Microsoft Excel",
+      "Tableau",
+      "Informatica",
+      "Ab Initio",
+      "Dataflow",
+      "Jenkins",
+      "JIRA",
+      "GitHub",
+      "LangGraph",
+      "LangChain",
+      "Tensorflow",
+      "PyTorch",
+      "NLTK",
+      "Django"
+    ],
+    "experience": [
+      {
+        "company": "Aretove Technologies",
+        "position": "AI Engineer",
+        "duration": "Sep 2024 - Present",
+        "location": "New York City, NY",
+        "description": [
+          "Architected LangGraph powered agentic AI system with Streamlit frontend, orchestrating NetSuite CRM integrations to automate employee leave management and work experience tracking for 100+ staff members",
+          "Engineered MySQL integrated conversational chatbot leveraging vector database schema context, enabling HR teams to retrieve employee data, project status, and payroll information through natural language queries processing 50+ daily requests",
+          "Orchestrated microservices architecture integrating database engines, Netusite APIs, and AI agents to deliver unified HR automation platform, reducing manual workflow processing time by 70%",
+          "Developed intelligent document processing pipeline using LLM parsing with client-specific template dictionaries, automatically extracting invoice details from SOWs to streamline NetSuite CRM updates and reduce manual data entry by 85%",
+          "Deployed SMTP email automation using Generative AI for personalized employee communications, delivering event notifications and achievement announcements with 40% improved engagement rates"
+        ]
+      },
+      {
+        "company": "Schell Brothers",
+        "position": "Data Science Co-op",
+        "duration": "May 2023 - Dec 2023",
+        "location": "Boston, MA",
+        "description": [
+          "Engineered an AI-driven customer sentiment analysis solution using a Random Forest model on Redshift data, prioritizing customer queries and reducing response delays by 43%, cutting turnaround time from 3.5 to 2 days.",
+          "Integrated Generative AI and vector-store technology into customer chat systems, automating query summarization and reducing coordinator response delays by 35%.",
+          "Developed and deployed a fully automated MLOps pipeline with Airflow, enabling continuous training and deployment of the model, resulting in a 0.2% weekly improvement in prediction accuracy.",
+          "Conducted rigorous A/B testing to validate solution effectiveness, driving measurable improvements in customer service efficiency and satisfaction."
+        ]
+      },
+      {
+        "company": "Accenture",
+        "position": "Data Engineer",
+        "duration": "Sep 2019 - Jul 2022",
+        "location": "Mumbai, India",
+        "description": [
+          "Enhanced performance across 20+ complex banking databases by implementing advanced SQL indexing and stored procedures, accelerating query speeds by 50% and improving data quality for analytics teams.",
+          "Redesigned AWS Glue ETL pipelines with Python-based parallel processing, reducing execution time by 40% and achieving significant infrastructure cost savings.",
+          "Conducted exploratory data analysis on credit datasets using PySpark, uncovering patterns that improved customer credit profile forecasting accuracy and reduced financial risk exposure by approximately 20%.",
+          "Collaborated with Agile teams to refine DevOps and CI/CD workflows, ensuring reliable and timely delivery of BNPL data models, improving deployment efficiency by 25%."
+        ]
+      }
+    ],
+    "education": [
+      {
+        "institution": "Northeastern University",
+        "degree": "Master of Science",
+        "field": "Information Systems",
+        "graduation_year": "2024"
+      },
+      {
+        "institution": "University of Mumbai",
+        "degree": "Bachelor's of Engineering",
+        "field": "Information Technology",
+        "graduation_year": "2019"
+      }
+    ],
     "certifications": [],
     "projects": [
-      "AIssueFlow | GitHub Issue Management using NLP and Vector Search Sep 2023 - Dec 2023"
+      "AIssueFlow | GitHub Issue Management using NLP and Vector Search   Sep 2023 - Dec 2023 • Engineered a real-time issue management system leveraging the GitHub API to extract issue data, storing structured metadata in Snowflake for efficient retrieval and analytics • Implemented NLP-driven embedding generation using a pre-trained BERT model, converting GitHub issues into vector embeddings stored in the Milvus vector database to facilitate rapid similarity searches • Built an intuitive web interface using Streamlit, enabling users to explore similar issues, view analytics on API usage, and manage repositories seamlessly, enhancing overall user experience and productivity • Deployed the application using a robust pipeline with Airflow orchestration on a cloud-hosted GCP instance, ensuring reliable availability and scalability"
     ]
   },
   "job_role_matches": [
     {
-      "role_title": "Machine Learning Engineer",
-      "confidence_score": 0.8,
-      "reasoning": "Rishabh's project experience in AI and GitHub issue management using NLP and vector search demonstrates a strong foundation in machine learning and natural language processing. These skills are highly sought after in the field of machine learning engineering.",
+      "role_title": "Senior Data Engineer",
+      "confidence_score": 0.95,
+      "reasoning": "The candidate's extensive experience in data engineering roles at Accenture and Aretove Technologies demonstrates a strong foundation in working with various database engines (MS SQL Server, Oracle, PostgreSQL, MySQL, MongoDB, AWS Redshift, Snowflake), cloud platforms (AWS, Microsoft Azure), and ETL tools (AWS Glue). Additionally, the candidate's proficiency in Python, PySpark, and Shell Script further solidifies their suitability for a Senior Data Engineer role.",
       "key_matching_skills": [
-        "AI",
-        "NLP",
-        "Vector Search",
-        "GitHub"
+        "MS SQL Server",
+        "Oracle",
+        "PostgreSQL",
+        "MySQL",
+        "MongoDB",
+        "AWS Redshift",
+        "Python",
+        "PySpark",
+        "Shell Script",
+        "AWS Glue"
+      ]
+    },
+    {
+      "role_title": "AI Engineer",
+      "confidence_score": 0.9,
+      "reasoning": "The candidate's recent experience as an AI Engineer at Aretove Technologies showcases their ability to architect and develop AI systems, chatbots, and automation solutions using various technologies such as Streamlit, MySQL, LLM parsing, Generative AI, and SMTP email automation. This background aligns well with the requirements of an AI Engineer role.",
+      "key_matching_skills": [
+        "Streamlit",
+        "MySQL",
+        "LLM parsing",
+        "Generative AI",
+        "SMTP email automation"
       ]
     },
     {
       "role_title": "Data Scientist",
-      "confidence_score": 0.75,
-      "reasoning": "While Rishabh's project experience is focused on machine learning, the problem-solving and analytical skills required for data science are evident in his work. A transition to a data scientist role could allow him to apply these skills more broadly within the field of data analysis.",
+      "confidence_score": 0.85,
+      "reasoning": "The candidate's experience in data science roles, particularly at Schell Brothers, demonstrates their ability to engineer AI-driven solutions for customer sentiment analysis, chat systems, and MLOps pipelines using Redshift, Generative AI, vector-store technology, Airflow, and Random Forest models. This background aligns well with the requirements of a Data Scientist role.",
       "key_matching_skills": [
-        "AI",
-        "NLP",
-        "Data Analysis"
-      ]
-    },
-    {
-      "role_title": "Research Scientist (Machine Learning)",
-      "confidence_score": 0.7,
-      "reasoning": "Rishabh's project experience and technical skills suggest a strong aptitude for research in the field of machine learning. A role as a research scientist would allow him to delve deeper into specific areas of interest and contribute to the broader understanding of machine learning technologies.",
-      "key_matching_skills": [
-        "AI",
-        "NLP",
-        "Research"
+        "Redshift",
+        "Generative AI",
+        "vector-store technology",
+        "Airflow",
+        "Random Forest"
       ]
     }
   ],
   "resume_summary": {
-    "overall_summary": "Rishabh Dinesh Singh is a highly skilled AI professional with experience in AI engineering, data science, and data engineering. He has demonstrated expertise in developing intelligent systems, automating workflows, and improving efficiency through the use of advanced technologies such as NLP, vector search, and Generative AI.",
+    "overall_summary": "Rishabh Dinesh Singh is a highly skilled and versatile Data Engineer and AI Engineer with extensive experience in various database technologies, programming languages, and AI tools. He has demonstrated expertise in automating workflows, developing intelligent document processing pipelines, and integrating AI systems for improved efficiency.",
     "years_of_experience": 4,
     "key_strengths": [
-      "AI system architecture",
-      "Natural language processing",
-      "Database integration",
-      "Automation of workflows",
-      "Data analysis and modeling"
+      "Database Management: MS SQL Server, Oracle, PostgreSQL, MySQL, MongoDB, AWS Redshift",
+      "AI and Machine Learning: Python, PySpark, Tensorflow, PyTorch, NLTK, Django",
+      "Cloud Computing: AWS (Redshift, Glue), Microsoft Azure",
+      "Data Integration and Automation: Snowflake, Databricks, Airbyte, Informatica, Dataflow",
+      "DevOps and CI/CD: Jenkins, JIRA, GitHub"
     ],
     "grammatical_issues": [
-      "Inconsistent formatting in the 'experience' section (some bullet points have colons, some do not)",
-      "Missing periods at the end of sentences in the 'experience' section",
-      "Incorrect date format for the Data Science Co-op experience (should be Month Year - Month Year)"
+      "In the 'experience' section, there is a typo in the company name 'Netusite' which should be 'NetSuite'.",
+      "In the 'projects' section, there is a missing period after 'Portfolio' under contact info."
     ],
     "improvement_suggestions": [
-      "Standardize formatting in the 'experience' section to maintain consistency",
-      "Ensure proper punctuation throughout the resume",
-      "Correct the date format for the Data Science Co-op experience",
-      "Consider adding a summary statement at the beginning of the resume to provide an overview of professional goals and achievements",
-      "Expand on the 'skills' section to include specific technical skills relevant to AI, data science, and data engineering"
+      "Consider adding a professional summary that highlights your unique value proposition and career goals.",
+      "Ensure consistency in formatting and capitalization throughout the resume.",
+      "Consider providing more quantifiable achievements to demonstrate the impact of your work.",
+      "Consider tailoring the resume for specific job applications by emphasizing relevant skills and experiences."
     ],
-    "quality_score": 8.0
+    "quality_score": 9.0
   }
 }

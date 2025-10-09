@@ -59,7 +59,7 @@ def display_results(result: dict):
     print_section("RESUME ANALYSIS RESULTS")
     
     if result.get('error'):
-        print(f"\n❌ Error: {result['error']}")
+        print(f"\n[X] Error: {result['error']}")
         print(f"Failed at step: {result.get('current_step', 'unknown')}")
         logger.error(f"Processing failed: {result['error']}")
         return
@@ -114,7 +114,7 @@ def display_results(result: dict):
                 print(f"   • {strength}")
         
         if summary.grammatical_issues:
-            print("\n⚠️  Issues Found:")
+            print("\n[WARNING]  Issues Found:")
             for issue in summary.grammatical_issues:
                 print(f"   • {issue}")
         
@@ -150,7 +150,7 @@ def save_results(result: dict, output_file: str = "output_result.json"):
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(output, f, indent=2, ensure_ascii=False)
     
-    print(f"✅ Results saved to {output_file}")
+    print(f"[OK] Results saved to {output_file}")
     logger.info(f"Results saved successfully")
 
 
@@ -172,48 +172,48 @@ def main():
     settings = get_settings()
     
     # Check Ollama is running
-    print("\n🔍 Checking Ollama status...")
+    print("\n[*] Checking Ollama status...")
     logger.info("Checking Ollama status")
     
     if not check_ollama_running():
-        print("❌ Ollama is not running!")
+        print("[X] Ollama is not running!")
         print("\nPlease start Ollama:")
         print("1. Open a new Command Prompt window")
         print("2. Run: ollama serve")
         logger.error("Ollama is not running")
         return
     
-    print("✅ Ollama is running")
+    print("[OK] Ollama is running")
     logger.info("Ollama is running")
     
     # Check if model is available
     model_name = settings.ollama_model
-    print(f"🔍 Checking if '{model_name}' model is available...")
+    print(f"[*] Checking if '{model_name}' model is available...")
     logger.info(f"Checking model availability: {model_name}")
     
     if not check_model_available(model_name):
-        print(f"❌ Model '{model_name}' not found!")
+        print(f"[X] Model '{model_name}' not found!")
         print(f"\nPlease download the model:")
         print(f"   ollama pull {model_name}")
         logger.error(f"Model '{model_name}' not available")
         return
     
-    print(f"✅ Model '{model_name}' is ready")
+    print(f"[OK] Model '{model_name}' is ready")
     logger.info(f"Model '{model_name}' is ready")
     
     # Initialize agent
     try:
-        print("\n⚙️  Initializing agent...")
+        print("\n[*]  Initializing agent...")
         logger.info("Starting agent initialization")
         
         with logger.timer("Agent Initialization"):
             agent = JobSearchAgent()
             drive_handler = GoogleDriveHandler()
         
-        print("✅ Agent initialized")
+        print("[OK] Agent initialized")
         
     except Exception as e:
-        print(f"\n❌ Initialization failed: {str(e)}")
+        print(f"\n[X] Initialization failed: {str(e)}")
         print("\nPlease ensure:")
         print("1. .env file exists with OLLAMA_MODEL")
         print("2. credentials/credentials.json exists with Google Cloud credentials")
@@ -222,13 +222,13 @@ def main():
     
     # Check if folder exists
     folder_name = settings.google_drive_folder_name
-    print(f"\n📁 Looking for folder: '{folder_name}'...")
+    print(f"\n[*] Looking for folder: '{folder_name}'...")
     logger.info(f"Searching for folder: {folder_name}")
     
     folder_id = drive_handler.find_folder_by_name(folder_name)
     
     if not folder_id:
-        print(f"❌ Folder '{folder_name}' not found in Google Drive!")
+        print(f"[X] Folder '{folder_name}' not found in Google Drive!")
         print(f"\nPlease:")
         print(f"1. Create a folder named '{folder_name}' in your Google Drive")
         print(f"2. Upload resume files (PDF or DOCX) to this folder")
@@ -236,23 +236,23 @@ def main():
         logger.error(f"Folder '{folder_name}' not found")
         return
     
-    print(f"✅ Found folder: '{folder_name}'")
+    print(f"[OK] Found folder: '{folder_name}'")
     logger.info(f"Found folder: {folder_name} (ID: {folder_id})")
     
     # List available resumes
     try:
-        print(f"\n📄 Fetching resumes from '{folder_name}' folder...")
+        print(f"\n[*] Fetching resumes from '{folder_name}' folder...")
         logger.info("Fetching resume list from Google Drive")
         
         resumes = drive_handler.list_resumes(folder_name=folder_name)
         
         if not resumes:
-            print(f"\n⚠️  No resumes found in '{folder_name}' folder")
+            print(f"\n[WARNING]  No resumes found in '{folder_name}' folder")
             print(f"Please upload PDF or DOCX resume files to the '{folder_name}' folder in Google Drive")
             logger.warning(f"No resumes found in folder")
             return
         
-        print(f"✅ Found {len(resumes)} resume(s):\n")
+        print(f"[OK] Found {len(resumes)} resume(s):\n")
         for idx, resume in enumerate(resumes, 1):
             size_kb = int(resume.get('size', 0)) / 1024 if resume.get('size') else 0
             print(f"  {idx}. {resume['name']} ({size_kb:.1f} KB)")
@@ -262,7 +262,7 @@ def main():
         # Select resume
         if len(resumes) == 1:
             selected_idx = 0
-            print(f"\n🎯 Auto-selecting: {resumes[0]['name']}")
+            print(f"\n[*] Auto-selecting: {resumes[0]['name']}")
             logger.info(f"Auto-selected resume: {resumes[0]['name']}")
         else:
             print("\n" + "=" * 80)
@@ -279,7 +279,7 @@ def main():
             logger.info(f"User selected resume: {resumes[selected_idx]['name']}")
         
         selected_resume = resumes[selected_idx]
-        print(f"\n📋 Processing: {selected_resume['name']}")
+        print(f"\n[*] Processing: {selected_resume['name']}")
         print("=" * 80)
         
         # Process resume
@@ -295,14 +295,14 @@ def main():
         save_results(result)
         
         print_section("EXECUTION COMPLETE")
-        print(f"📄 Log file saved to: {logger.log_file}")
+        print(f"[*] Log file saved to: {logger.log_file}")
         logger.info("=== APPLICATION COMPLETED SUCCESSFULLY ===")
         
     except KeyboardInterrupt:
-        print("\n\n⚠️  Process interrupted by user")
+        print("\n\n[WARNING]  Process interrupted by user")
         logger.warning("Process interrupted by user")
     except Exception as e:
-        print(f"\n❌ Error: {str(e)}")
+        print(f"\n[X] Error: {str(e)}")
         logger.error(f"Error: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())

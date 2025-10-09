@@ -1,5 +1,6 @@
 """Resume text extraction from various file formats."""
 
+import pdfplumber
 import PyPDF2
 import docx
 from typing import Optional
@@ -11,7 +12,7 @@ class ResumeTextExtractor:
     
     @staticmethod
     def extract_from_pdf(file_path: str) -> str:
-        """Extract text from PDF file.
+        """Extract text from PDF file using PDFPlumber.
         
         Args:
             file_path: Path to PDF file
@@ -24,14 +25,14 @@ class ResumeTextExtractor:
         """
         text = ""
         try:
-            with open(file_path, 'rb') as file:
-                pdf_reader = PyPDF2.PdfReader(file)
-                num_pages = len(pdf_reader.pages)
-                print(f"Extracting text from {num_pages} pages...")
+            with pdfplumber.open(file_path) as pdf:
+                num_pages = len(pdf.pages)
+                print(f"Extracting text from {num_pages} pages with pdfplumber...")
                 
-                for page_num, page in enumerate(pdf_reader.pages, 1):
+                for page_num, page in enumerate(pdf.pages, 1):
                     page_text = page.extract_text()
-                    text += page_text + "\n"
+                    if page_text:
+                        text += page_text + "\n"
                     print(f"Processed page {page_num}/{num_pages}")
                     
         except Exception as e:

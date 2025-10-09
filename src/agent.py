@@ -16,6 +16,7 @@ from src.config import get_settings
 from src.logger import get_logger
 from src.callbacks import StreamingCallbackHandler
 from pydantic import BaseModel
+from src.enhanced_resume_parser import EnhancedResumeParser
 
 
 class JobSearchAgent:
@@ -119,53 +120,35 @@ class JobSearchAgent:
                 }
     
     def _parse_resume(self, state: AgentState) -> Dict[str, Any]:
-        """Node: Parse resume into structured format using LLM.
-        
+        """Node: Parse resume into structured format using PDFPlumber.
+    
         Args:
             state: Current agent state
-            
+        
         Returns:
             Updated state dictionary
         """
-        with self.logger.timer("Parse Resume with LLM"):
-            system_prompt = """You are an expert resume parser. Extract structured information from resumes.
-
-Extract the following information accurately:
-- Contact information (name, email, phone, LinkedIn, location)
-- Professional summary
-- Skills (technical and soft skills)
-- Work experience (company, position, duration, responsibilities)
-- Education (institution, degree, field, graduation year)
-- Certifications
-- Projects
-
-Return ONLY valid JSON matching the schema. Be thorough and accurate."""
-            
-            user_prompt = f"""Parse the following resume and extract all relevant information:
-
-{state['raw_resume_text']}
-
-Return the data in structured JSON format."""
-            
-            # Use structured output with Ollama
-            structured_llm = self.llm.with_structured_output(ParsedResume)
-            
+        with self.logger.timer("Parse Resume with PDFPlumber"):
             try:
-                self.logger.info("🔍 Parsing resume with Ollama AI...")
-                self.logger.info("💭 LLM is thinking and structuring the resume data...")
+                self.logger.info("🔍 Parsing resume with PDFPlumber (layout-aware)...")
                 
-                parsed_resume = structured_llm.invoke([
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=user_prompt)
-                ])
+                # Use enhanced parser instead of LLM
+                parser = EnhancedResumeParser(
+                    file_path=state['file_name'],
+                    debug=True  # Set to True for troubleshooting
+                )
+                
+                parsed_resume = parser.parse()
                 
                 self.logger.info("✅ Resume parsed successfully")
-                self.logger.debug(f"Parsed {len(parsed_resume.skills)} skills, {len(parsed_resume.experience)} experiences")
+                self.logger.debug(f"Parsed {len(parsed_resume.skills)} skills, "
+                                f"{len(parsed_resume.experience)} experiences, "
+                                f"{len(parsed_resume.education)} education entries")
                 
                 return {
                     "parsed_resume": parsed_resume,
                     "current_step": "parsing_complete",
-                    "messages": [HumanMessage(content="Resume parsed successfully")],
+                    "messages": [HumanMessage(content="Resume parsed successfully with PDFPlumber")],
                 }
             except Exception as e:
                 self.logger.error(f"Parsing failed: {str(e)}")
@@ -173,6 +156,7 @@ Return the data in structured JSON format."""
                     "error": f"Parsing error: {str(e)}",
                     "current_step": "parsing_failed"
                 }
+
     
     def _analyze_job_roles(self, state: AgentState) -> Dict[str, Any]:
         """Node: Analyze and recommend job roles.
