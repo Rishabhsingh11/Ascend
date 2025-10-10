@@ -17,6 +17,8 @@ from src.logger import get_logger
 from src.callbacks import StreamingCallbackHandler
 from pydantic import BaseModel
 from src.enhanced_resume_parser import EnhancedResumeParser
+from src.document_store import DocumentStore
+from src.utils import hash_file
 
 
 class JobSearchAgent:
@@ -300,7 +302,7 @@ Provide detailed feedback."""
         self.logger.info("✅ Cleanup complete")
     
     def process_resume(self, file_id: str, file_name: str) -> Dict[str, Any]:
-        """Process a resume through the entire pipeline.
+        """Process a resume through the entire pipeline with caching.
         
         Args:
             file_id: Google Drive file ID
@@ -312,27 +314,102 @@ Provide detailed feedback."""
         self.logger.log_section("STARTING RESUME PROCESSING PIPELINE")
         
         with self.logger.timer("Total Resume Processing"):
-            initial_state = {
-                "messages": [],
-                "file_id": file_id,
-                "file_name": file_name,
-                "raw_resume_text": "",
-                "parsed_resume": None,
-                "job_role_matches": None,
-                "resume_summary": None,
-                "current_step": "initialized",
-                "error": None
-            }
+            # Initialize document store
+            doc_store = DocumentStore()
             
             try:
+                # Step 1: Download the resume (needed for hashing)
+                self.logger.info(f"📥 Downloading resume: {file_name}")
+                
+                file_content = self.drive_handler.download_file(file_id, file_name)
+                self.downloaded_files.append(file_name)
+                
+                # Step 2: Compute hash of downloaded file
+                with self.logger.timer("Compute Resume Hash"):
+                    resume_hash = hash_file(file_name)
+                    self.logger.info(f"🔑 Resume hash: {resume_hash[:16]}...")
+                
+                # Step 3: Check cache
+                cached_data = doc_store.get_cached_resume(resume_hash)
+                
+                if cached_data:
+                    self.logger.log_section("📦 USING CACHED RESULTS")
+                    self.logger.info(f"✅ Found cached analysis for this resume")
+                    self.logger.info(f"   Originally processed: {cached_data['created_at']}")
+                    self.logger.info(f"   Skipping PDF parsing and LLM analysis")
+                    
+                    # Reconstruct state from cache
+                    from src.state import ParsedResume, JobRoleMatch, ResumeSummary
+                    
+                    final_state = {
+                        "messages": [HumanMessage(content=f"Loaded cached analysis for {file_name}")],
+                        "file_id": file_id,
+                        "file_name": file_name,
+                        "raw_resume_text": "",  # Not stored in cache
+                        "parsed_resume": ParsedResume.model_validate(cached_data['parsed_data']) if cached_data['parsed_data'] else None,
+                        "job_role_matches": [JobRoleMatch.model_validate(match) for match in cached_data['job_roles']] if cached_data['job_roles'] else None,
+                        "resume_summary": ResumeSummary.model_validate(cached_data['summary']) if cached_data['summary'] else None,
+                        "current_step": "complete",
+                        "error": None
+                    }
+                    
+                    # Cleanup and close
+                    self.cleanup_downloaded_files()
+                    doc_store.close()
+                    
+                    self.logger.info("✅ Cache retrieval complete")
+                    return final_state
+                
+                # Step 4: No cache hit - run full pipeline
+                self.logger.log_section("🔄 PROCESSING NEW RESUME")
+                self.logger.info("ℹ️  No cache found - running full analysis pipeline")
+                
+                # Extract text for raw text storage
+                self.logger.info("📄 Extracting text from resume...")
+                raw_text = self.text_extractor.extract_text(file_name)
+                self.logger.info(f"✅ Extracted {len(raw_text)} characters, {len(raw_text.split())} words")
+                
+                # Build initial state for workflow
+                initial_state = {
+                    "messages": [HumanMessage(content=f"Processing {file_name}")],
+                    "file_id": file_id,
+                    "file_name": file_name,
+                    "raw_resume_text": raw_text,
+                    "parsed_resume": None,
+                    "job_role_matches": None,
+                    "resume_summary": None,
+                    "current_step": "download_complete",
+                    "error": None
+                }
+                
+                # Run the full workflow (parse → analyze → summarize)
                 final_state = self.workflow.invoke(initial_state)
                 
-                # Cleanup downloaded files after processing
+                # Step 5: Save results to cache if successful
+                if final_state.get('parsed_resume') and final_state.get('current_step') == 'complete':
+                    self.logger.info("💾 Saving results to cache...")
+                    
+                    doc_store.save_cached_resume(
+                        resume_hash=resume_hash,
+                        file_name=file_name,
+                        parsed_data=final_state['parsed_resume'].model_dump(),
+                        job_roles=[match.model_dump() for match in final_state['job_role_matches']] if final_state.get('job_role_matches') else None,
+                        summary=final_state['resume_summary'].model_dump() if final_state.get('resume_summary') else None
+                    )
+                    
+                    self.logger.info("✅ Results cached for future use")
+                else:
+                    self.logger.warning("⚠️  Pipeline incomplete - results not cached")
+                
+                # Cleanup
                 self.cleanup_downloaded_files()
+                doc_store.close()
                 
                 return final_state
+                
             except Exception as e:
-                self.logger.error(f"Pipeline execution failed: {str(e)}")
-                # Still attempt cleanup even if there was an error
+                self.logger.error(f"❌ Pipeline execution failed: {str(e)}")
+                # Cleanup even on error
                 self.cleanup_downloaded_files()
+                doc_store.close()
                 raise
