@@ -1,0 +1,125 @@
+/* Custom styling for Ascend Resume Analyzer */
+
+/* Main container */
+.main {
+    background-color: #F8FAFC;
+}
+
+/* Headers */
+h1, h2, h3 {
+    color: #1E3A8A !important;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Fix expander text visibility */
+.stExpander {
+    background-color: white !important;
+    border-radius: 10px !important;
+    border: 1px solid #E2E8F0 !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+}
+
+/* Fix expander header text color */
+.stExpander summary {
+    color: #1E3A8A !important;
+    font-weight: 600 !important;
+}
+
+/* Fix expander content text color */
+.stExpander [data-testid="stExpanderDetails"] {
+    color: #1F2937 !important;
+    background-color: #FFFFFF !important;
+}
+
+/* Fix all text inside expanders */
+.stExpander p, 
+.stExpander li, 
+.stExpander div,
+.stExpander span,
+.stExpander label {
+    color: #1F2937 !important;
+}
+
+/* Fix markdown text in expanders */
+.stExpander .stMarkdown {
+    color: #1F2937 !important;
+}
+
+/* Buttons */
+.stButton>button {
+    border-radius: 8px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.stButton>button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+/* Metrics */
+.stMetric {
+    background-color: white;
+    padding: 1rem;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* Metric labels and values */
+.stMetric label {
+    color: #64748B !important;
+}
+
+.stMetric [data-testid="stMetricValue"] {
+    color: #1E3A8A !important;
+}
+
+/* Progress bar */
+.stProgress > div > div {
+    background-color: #3B82F6;
+}
+
+/* Sidebar */
+.css-1d391kg {
+    background-color: #F8FAFC;
+}
+
+/* File uploader */
+.stFileUploader {
+    border: 2px dashed #3B82F6;
+    border-radius: 10px;
+    padding: 2rem;
+    background-color: #EFF6FF;
+}
+
+/* Dataframe */
+.stDataFrame {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+/* Info boxes */
+.stAlert {
+    border-radius: 8px;
+}
+
+/* Fix success/warning/error messages text */
+.stSuccess, .stWarning, .stError, .stInfo {
+    color: #1F2937 !important;
+}
+
+/* Skills tags container */
+.skill-tag {
+    display: inline-block;
+    background-color: #3B82F6;
+    color: white !important;
+    padding: 0.4rem 0.8rem;
+    margin: 0.3rem;
+    border-radius: 20px;
+    font-size: 0.9rem;
+}
+
+/* Subheaders */
+.stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {
+    color: #1E3A8A !important;
+}

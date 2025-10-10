@@ -95,17 +95,24 @@ class JobSearchAgent:
             try:
                 self.logger.info(f"📥 Downloading resume: {state['file_name']}")
                 
+                # Create temp directory in project root
+                temp_dir = Path("temp_resumes")
+                temp_dir.mkdir(exist_ok=True)
+                
+                # Save to temp directory instead of project root
+                temp_file_path = temp_dir / state['file_name']
+                
                 file_content = self.drive_handler.download_file(
                     state["file_id"], 
-                    state["file_name"]
+                    str(temp_file_path)  # Use temp directory path
                 )
                 
                 # Track downloaded file for cleanup
-                self.downloaded_files.append(state["file_name"])
+                self.downloaded_files.append(str(temp_file_path))
                 
                 # Extract text
                 self.logger.info("📄 Extracting text from resume...")
-                raw_text = self.text_extractor.extract_text(state["file_name"])
+                raw_text = self.text_extractor.extract_text(str(temp_file_path))
                 
                 self.logger.info(f"✅ Extracted {len(raw_text)} characters, {len(raw_text.split())} words")
                 
@@ -320,6 +327,11 @@ Provide detailed feedback."""
             try:
                 # Step 1: Download the resume (needed for hashing)
                 self.logger.info(f"📥 Downloading resume: {file_name}")
+                
+                temp_dir = Path("temp_resumes")
+                temp_dir.mkdir(exist_ok=True)
+                temp_file_path = temp_dir / file_name
+
                 
                 file_content = self.drive_handler.download_file(file_id, file_name)
                 self.downloaded_files.append(file_name)

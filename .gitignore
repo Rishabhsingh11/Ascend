@@ -209,3 +209,13 @@ __marimo__/
 credentials/
 *.pickle
 test_input/
+
+
+# Temp files
+temp_resume/
+temp_uploads/
+*.pdf
+*.docx
+
+
+.streamlit
