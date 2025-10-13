@@ -20,6 +20,24 @@ from src.enhanced_resume_parser import EnhancedResumeParser
 from src.document_store import DocumentStore
 from src.utils import hash_file
 
+def _handle_streaming_error(self, error: Exception, operation_name: str) -> Dict[str, Any]:
+    """Centralized error handling for streaming operations.
+    
+    Args:
+        error: Exception that occurred
+        operation_name: Name of operation that failed
+        
+    Returns:
+        Error state dictionary
+    """
+    error_msg = f"{operation_name} failed: {str(error)}"
+    self.logger.error(error_msg)
+    
+    return {
+        'error': error_msg,
+        'current_step': f"{operation_name.lower().replace(' ', '_')}_failed",
+        'messages': [HumanMessage(content=error_msg)]
+    }
 
 class JobSearchAgent:
     """AI Agent for job search assistance using LangGraph and Ollama."""
@@ -425,3 +443,264 @@ Provide detailed feedback."""
                 self.cleanup_downloaded_files()
                 doc_store.close()
                 raise
+
+    def _analyze_job_roles_streaming(self, state: AgentState, token_callback=None) -> dict[str,any]:
+        
+        """Node: Analyze and recommend job roles WITH STREAMING.
+        
+        This is a hybrid approach:
+        1. Stream raw tokens to UI via callback
+        2. Parse complete response into structured Pydantic objects
+        
+        Args:
+            state: Current agent state
+            token_callback: Optional function(token: str) to handle each token
+            
+        Returns:
+            Updated state dictionary with structured job role matches
+        """
+        with self.logger.timer("Analyze Job Roles (Streaming)"):
+            system_prompt = """You are an experienced career coach with deep knowledge of job markets and roles.
+
+    Based on the candidate's resume, identify the TOP 3 job roles they are best suited for.
+    For each role, provide:
+    1. Role title
+    2. Confidence score (0.0 to 1.0) - how well the candidate fits
+    3. Detailed reasoning for the recommendation
+    4. Key skills from their resume that match this role
+
+    Consider:
+    - Years of experience
+    - Technical skills
+    - Domain expertise
+    - Career progression
+    - Industry trends
+
+    IMPORTANT: Format your response as a valid JSON array of objects with these exact fields:
+    - role_title (string)
+    - confidence_score (number between 0.0 and 1.0)
+    - reasoning (string)
+    - key_matching_skills (array of strings)
+
+    Example format:
+    [
+    {
+        "role_title": "Senior Data Engineer",
+        "confidence_score": 0.92,
+        "reasoning": "Strong experience in...",
+        "key_matching_skills": ["Python", "SQL", "AWS"]
+    }
+    ]
+
+    Be realistic and specific in your recommendations."""
+            
+            resume_json = state['parsed_resume'].model_dump_json(indent=2)
+            user_prompt = f"""Analyze this resume and recommend the top 3 job roles:
+
+    {resume_json}
+
+    Provide detailed analysis for each role in JSON format."""
+            
+            try:
+                self.logger.info("🎯 Analyzing suitable job roles with streaming...")
+                
+                # Create callback handler for streaming
+                streaming_callback = StreamingCallbackHandler(on_token_callback=token_callback)
+                
+                # Create LLM WITHOUT structured output for streaming
+                streaming_llm = ChatOllama(
+                    model=self.llm.model,
+                    base_url=self.llm.base_url,
+                    temperature=self.llm.temperature,
+                    streaming=True,
+                    callbacks=[streaming_callback],
+                    format='json'  # Request JSON format from Ollama
+                )
+                
+                # Stream the response
+                from langchain_core.messages import HumanMessage, SystemMessage
+                response = streaming_llm.invoke([
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=user_prompt)
+                ])
+                
+                # Get the complete streamed text
+                complete_text = streaming_callback.get_accumulated_text()
+                
+                self.logger.debug(f"Raw LLM response: {complete_text[:500]}...")
+                
+                # Parse the JSON response into Pydantic objects
+                import json
+                import re
+                
+                # Extract JSON from response (sometimes LLM adds extra text)
+                json_match = re.search(r'\[.*\]', complete_text, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                else:
+                    json_str = complete_text
+                
+                # Parse JSON
+                matches_data = json.loads(json_str)
+                
+                # Validate and convert to Pydantic models
+                from src.state import JobRoleMatch
+                job_matches = []
+                for match_dict in matches_data[:3]:  # Ensure only top 3
+                    try:
+                        job_match = JobRoleMatch(
+                            role_title=match_dict.get('role_title', ''),
+                            confidence_score=float(match_dict.get('confidence_score', 0.0)),
+                            reasoning=match_dict.get('reasoning', ''),
+                            key_matching_skills=match_dict.get('key_matching_skills', [])
+                        )
+                        job_matches.append(job_match)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to parse job match: {e}")
+                        continue
+                
+                self.logger.info(f"✅ Generated {len(job_matches)} job role recommendations")
+                for idx, match in enumerate(job_matches, 1):
+                    self.logger.debug(f"  {idx}. {match.role_title} (confidence: {match.confidence_score:.2%})")
+                
+                return {
+                    "job_role_matches": job_matches,
+                    "current_step": "analysis_complete",
+                    "messages": [HumanMessage(content="Job role analysis complete with streaming")],
+                }
+                
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Failed to parse JSON response: {e}")
+                self.logger.error(f"Raw response: {complete_text}")
+                return {
+                    "error": f"JSON parsing error: {str(e)}",
+                    "current_step": "analysis_failed"
+                }
+            except Exception as e:
+                self.logger.error(f"Analysis failed: {str(e)}")
+                return {
+                    "error": f"Analysis error: {str(e)}",
+                    "current_step": "analysis_failed"
+                }
+
+
+    def _generate_summary_streaming(self, state: AgentState,token_callback=None) -> dict[str, any]:
+        """Node: Generate resume summary and quality assessment WITH STREAMING.
+        
+        Args:
+            state: Current agent state
+            token_callback: Optional function(token: str) to handle each token
+            
+        Returns:
+            Updated state dictionary with structured summary
+        """
+        with self.logger.timer("Generate Resume Summary (Streaming)"):
+            system_prompt = """You are an expert resume reviewer and editor.
+
+    Provide a comprehensive summary and quality assessment in JSON format with these exact fields:
+    - overall_summary (string): 2-3 sentence summary of candidate's profile
+    - years_of_experience (integer): Total years of professional experience
+    - key_strengths (array of strings): Top 3-5 strengths
+    - grammatical_issues (array of strings): Grammar and formatting issues found
+    - improvement_suggestions (array of strings): Specific actionable suggestions
+    - quality_score (number): Overall score from 0 to 10
+
+    Example format:
+    {
+    "overall_summary": "Experienced data professional with...",
+    "years_of_experience": 5,
+    "key_strengths": ["Strong technical skills", "Leadership experience"],
+    "grammatical_issues": ["Inconsistent tense in bullets"],
+    "improvement_suggestions": ["Add metrics to achievements"],
+    "quality_score": 7.5
+    }
+
+    Be constructive, specific, and actionable in your feedback."""
+            
+            resume_json = state['parsed_resume'].model_dump_json(indent=2)
+            raw_text_preview = state.get('raw_resume_text', '')[:3000]
+            
+            user_prompt = f"""Review this resume and provide a comprehensive summary and quality assessment:
+
+    {resume_json}
+
+    Raw Resume Text (for grammar checking):
+    {raw_text_preview}
+
+    Provide detailed feedback in JSON format."""
+            
+            try:
+                self.logger.info("📊 Generating resume summary with streaming...")
+                
+                # Create callback handler for streaming
+                streaming_callback = StreamingCallbackHandler(on_token_callback=token_callback)
+                
+                # Create LLM WITHOUT structured output for streaming
+                streaming_llm = ChatOllama(
+                    model=self.llm.model,
+                    base_url=self.llm.base_url,
+                    temperature=self.llm.temperature,
+                    streaming=True,
+                    callbacks=[streaming_callback],
+                    format='json'  # Request JSON format from Ollama
+                )
+                
+                # Stream the response
+                from langchain_core.messages import HumanMessage, SystemMessage
+                response = streaming_llm.invoke([
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=user_prompt)
+                ])
+                
+                # Get the complete streamed text
+                complete_text = streaming_callback.get_accumulated_text()
+                
+                self.logger.debug(f"Raw LLM response: {complete_text[:500]}...")
+                
+                # Parse the JSON response into Pydantic object
+                import json
+                import re
+                
+                # Extract JSON from response
+                json_match = re.search(r'\{.*\}', complete_text, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                else:
+                    json_str = complete_text
+                
+                # Parse JSON
+                summary_data = json.loads(json_str)
+                
+                # Validate and convert to Pydantic model
+                from src.state import ResumeSummary
+                summary = ResumeSummary(
+                    overall_summary=summary_data.get('overall_summary', ''),
+                    years_of_experience=summary_data.get('years_of_experience'),
+                    key_strengths=summary_data.get('key_strengths', []),
+                    grammatical_issues=summary_data.get('grammatical_issues', []),
+                    improvement_suggestions=summary_data.get('improvement_suggestions', []),
+                    quality_score=float(summary_data.get('quality_score', 0.0))
+                )
+                
+                self.logger.info(f"✅ Summary generated (Quality Score: {summary.quality_score}/10)")
+                self.logger.debug(f"Identified {len(summary.key_strengths)} strengths, {len(summary.grammatical_issues)} issues")
+                
+                return {
+                    "resume_summary": summary,
+                    "current_step": "complete",
+                    "messages": [HumanMessage(content="Summary generation complete with streaming")],
+                }
+                
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Failed to parse JSON response: {e}")
+                self.logger.error(f"Raw response: {complete_text}")
+                return {
+                    "error": f"JSON parsing error: {str(e)}",
+                    "current_step": "summary_failed"
+                }
+            except Exception as e:
+                self.logger.error(f"Summary generation failed: {str(e)}")
+                return {
+                    "error": f"Summary error: {str(e)}",
+                    "current_step": "summary_failed"
+                }
