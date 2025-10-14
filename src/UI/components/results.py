@@ -4,6 +4,7 @@ import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 from typing import Dict, Any
+from src.UI.components.skill_gap_viewer import render_skill_gap_analysis
 
 
 def render_results(result: Dict[str, Any]):
@@ -12,7 +13,6 @@ def render_results(result: Dict[str, Any]):
     Args:
         result: Final agent state with all analysis results
     """
-    
     if result.get('error'):
         st.error(f"❌ Error: {result['error']}")
         return
@@ -44,6 +44,21 @@ def render_results(result: Dict[str, Any]):
     
     # Education
     render_education_section(result.get('parsed_resume'))
+    # ===== PHASE 2 RESULTS (NEW) =====
+    
+    # Check if skill gap analysis exists
+    if result.get('skill_gap_analysis'):
+        # Render the complete skill gap analysis
+        render_skill_gap_analysis(result['skill_gap_analysis'])
+    elif result.get('enable_skill_gap') == False:
+        # User disabled Phase 2
+        st.info("ℹ️ **Skill Gap Analysis was disabled** for this resume. Enable it when analyzing to see market insights.")
+    elif result.get('job_postings') and len(result['job_postings']) == 0:
+        # Jobs were fetched but none found
+        st.warning("⚠️ **No job postings found** for your recommended roles. Skill gap analysis requires job data.")
+    else:
+        # No skill gap data at all (old cached results)
+        st.info("ℹ️ **Skill Gap Analysis not available**. This may be an older cached result. Re-analyze the resume to see Phase 2 insights.")
 
 
 def render_contact_info(parsed_resume):
@@ -295,4 +310,3 @@ def render_education_section(parsed_resume):
             if edu.graduation_year:
                 st.markdown(f"**{edu.graduation_year}**")
         
-        st.divider()
