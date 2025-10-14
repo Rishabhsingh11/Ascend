@@ -1,6 +1,12 @@
 """Main LangGraph agent for job search assistance with Ollama."""
 
 import os
+import sys
+from pathlib import Path
+# Add project root
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 from langgraph.graph import StateGraph, END
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -8,7 +14,7 @@ from typing import Dict, Any, List
 
 from src.state import (
     AgentState, ParsedResume, JobRoleMatch, 
-    ResumeSummary
+    ResumeSummary, JobPosting, SkillGapAnalysis
 )
 from src.resume_parser import ResumeTextExtractor
 from src.google_drive_handler import GoogleDriveHandler
@@ -19,6 +25,13 @@ from pydantic import BaseModel
 from src.enhanced_resume_parser import EnhancedResumeParser
 from src.document_store import DocumentStore
 from src.utils import hash_file
+
+# ===== NEW IMPORTS FOR PHASE 2 =====
+from src.api.job_api_client import JobAPIClient
+from src.skills.skill_extractor import SkillExtractor
+from src.skills.skill_comparator import SkillComparator
+from src.skills.skill_gap_analyzer import SkillGapAnalyzer
+
 
 def _handle_streaming_error(self, error: Exception, operation_name: str) -> Dict[str, Any]:
     """Centralized error handling for streaming operations.
@@ -38,6 +51,7 @@ def _handle_streaming_error(self, error: Exception, operation_name: str) -> Dict
         'current_step': f"{operation_name.lower().replace(' ', '_')}_failed",
         'messages': [HumanMessage(content=error_msg)]
     }
+
 
 class JobSearchAgent:
     """AI Agent for job search assistance using LangGraph and Ollama."""
@@ -71,12 +85,35 @@ class JobSearchAgent:
         self.text_extractor = ResumeTextExtractor()
         self.downloaded_files = []  # Track downloaded files for cleanup
         
+        # ===== NEW: Initialize Phase 2 components =====
+        self.job_api_client = None  # Lazy initialization
+        self.skill_extractor = None
+        self.skill_comparator = None
+        self.skill_gap_analyzer = None
+        
         self.workflow = self._build_graph()
         
         self.logger.info("✅ Agent initialization complete")
     
+    def _initialize_phase2_components(self):
+        """Lazy initialization of Phase 2 components (only when needed)."""
+        if self.job_api_client is None:
+            self.logger.info("🔧 Initializing Phase 2 components (Skill Gap Analysis)...")
+            try:
+                self.job_api_client = JobAPIClient()
+                self.skill_extractor = SkillExtractor()
+                self.skill_comparator = SkillComparator()
+                self.skill_gap_analyzer = SkillGapAnalyzer(
+                    self.skill_extractor, 
+                    self.skill_comparator
+                )
+                self.logger.info("✅ Phase 2 components initialized")
+            except Exception as e:
+                self.logger.warning(f"⚠️  Phase 2 initialization failed: {e}")
+                self.logger.warning("   Skill gap analysis will be skipped")
+    
     def _build_graph(self) -> StateGraph:
-        """Build the LangGraph workflow.
+        """Build the LangGraph workflow with skill gap analysis.
         
         Returns:
             Compiled state graph
@@ -84,20 +121,28 @@ class JobSearchAgent:
         self.logger.debug("Building LangGraph workflow...")
         workflow = StateGraph(AgentState)
         
-        # Add nodes
+        # ===== PHASE 1 NODES (EXISTING) =====
         workflow.add_node("download_resume", self._download_resume)
         workflow.add_node("parse_resume", self._parse_resume)
         workflow.add_node("analyze_job_roles", self._analyze_job_roles)
         workflow.add_node("generate_summary", self._generate_summary)
         
-        # Define edges
+        # ===== PHASE 2 NODES (NEW) =====
+        workflow.add_node("fetch_job_postings", self._fetch_job_postings)
+        workflow.add_node("analyze_skill_gaps", self._analyze_skill_gaps)
+        
+        # ===== PHASE 1 EDGES (EXISTING) =====
         workflow.set_entry_point("download_resume")
         workflow.add_edge("download_resume", "parse_resume")
         workflow.add_edge("parse_resume", "analyze_job_roles")
         workflow.add_edge("analyze_job_roles", "generate_summary")
-        workflow.add_edge("generate_summary", END)
         
-        self.logger.debug("✅ LangGraph workflow built successfully")
+        # ===== PHASE 2 EDGES (NEW) =====
+        workflow.add_edge("generate_summary", "fetch_job_postings")
+        workflow.add_edge("fetch_job_postings", "analyze_skill_gaps")
+        workflow.add_edge("analyze_skill_gaps", END)
+        
+        self.logger.debug("✅ LangGraph workflow built successfully (Phase 1 + Phase 2)")
         return workflow.compile()
     
     def _download_resume(self, state: AgentState) -> Dict[str, Any]:
@@ -122,7 +167,7 @@ class JobSearchAgent:
                 
                 file_content = self.drive_handler.download_file(
                     state["file_id"], 
-                    str(temp_file_path)  # Use temp directory path
+                    str(temp_file_path)
                 )
                 
                 # Track downloaded file for cleanup
@@ -162,7 +207,7 @@ class JobSearchAgent:
                 # Use enhanced parser instead of LLM
                 parser = EnhancedResumeParser(
                     file_path=state['file_name'],
-                    debug=True  # Set to True for troubleshooting
+                    debug=True
                 )
                 
                 parsed_resume = parser.parse()
@@ -183,7 +228,6 @@ class JobSearchAgent:
                     "error": f"Parsing error: {str(e)}",
                     "current_step": "parsing_failed"
                 }
-
     
     def _analyze_job_roles(self, state: AgentState) -> Dict[str, Any]:
         """Node: Analyze and recommend job roles.
@@ -309,143 +353,166 @@ Provide detailed feedback."""
                     "current_step": "summary_failed"
                 }
     
-    def cleanup_downloaded_files(self):
-        """Delete all downloaded resume files."""
-        self.logger.info("🗑️  Cleaning up downloaded files...")
-        
-        for filename in self.downloaded_files:
-            try:
-                if os.path.exists(filename):
-                    os.remove(filename)
-                    self.logger.info(f"✅ Deleted: {filename}")
-                else:
-                    self.logger.warning(f"File not found for cleanup: {filename}")
-            except Exception as e:
-                self.logger.error(f"Failed to delete {filename}: {str(e)}")
-        
-        self.downloaded_files.clear()
-        self.logger.info("✅ Cleanup complete")
+    # ===== NEW PHASE 2 NODES =====
     
-    def process_resume(self, file_id: str, file_name: str) -> Dict[str, Any]:
-        """Process a resume through the entire pipeline with caching.
+    def _fetch_job_postings(self, state: AgentState) -> Dict[str, Any]:
+        """Node: Fetch job postings for the top 3 recommended roles.
         
         Args:
-            file_id: Google Drive file ID
-            file_name: Name of the resume file
+            state: Current agent state
             
         Returns:
-            Final agent state with all results
+            Updated state dictionary with job postings
         """
-        self.logger.log_section("STARTING RESUME PROCESSING PIPELINE")
+        self.logger.log_section("PHASE 2: FETCHING JOB POSTINGS")
         
-        with self.logger.timer("Total Resume Processing"):
-            # Initialize document store
-            doc_store = DocumentStore()
-            
+        with self.logger.timer("Fetch Job Postings"):
             try:
-                # Step 1: Download the resume (needed for hashing)
-                self.logger.info(f"📥 Downloading resume: {file_name}")
-                
-                temp_dir = Path("temp_resumes")
-                temp_dir.mkdir(exist_ok=True)
-                temp_file_path = temp_dir / file_name
-
-                
-                file_content = self.drive_handler.download_file(file_id, file_name)
-                self.downloaded_files.append(file_name)
-                
-                # Step 2: Compute hash of downloaded file
-                with self.logger.timer("Compute Resume Hash"):
-                    resume_hash = hash_file(file_name)
-                    self.logger.info(f"🔑 Resume hash: {resume_hash[:16]}...")
-                
-                # Step 3: Check cache
-                cached_data = doc_store.get_cached_resume(resume_hash)
-                
-                if cached_data:
-                    self.logger.log_section("📦 USING CACHED RESULTS")
-                    self.logger.info(f"✅ Found cached analysis for this resume")
-                    self.logger.info(f"   Originally processed: {cached_data['created_at']}")
-                    self.logger.info(f"   Skipping PDF parsing and LLM analysis")
-                    
-                    # Reconstruct state from cache
-                    from src.state import ParsedResume, JobRoleMatch, ResumeSummary
-                    
-                    final_state = {
-                        "messages": [HumanMessage(content=f"Loaded cached analysis for {file_name}")],
-                        "file_id": file_id,
-                        "file_name": file_name,
-                        "raw_resume_text": "",  # Not stored in cache
-                        "parsed_resume": ParsedResume.model_validate(cached_data['parsed_data']) if cached_data['parsed_data'] else None,
-                        "job_role_matches": [JobRoleMatch.model_validate(match) for match in cached_data['job_roles']] if cached_data['job_roles'] else None,
-                        "resume_summary": ResumeSummary.model_validate(cached_data['summary']) if cached_data['summary'] else None,
-                        "current_step": "complete",
-                        "error": None
+                # Check if skill gap analysis is enabled
+                if not state.get('enable_skill_gap', True):
+                    self.logger.info("⏭️  Skill gap analysis disabled, skipping job fetch")
+                    return {
+                        "job_postings": [],
+                        "current_step": "job_fetch_skipped",
+                        "messages": [HumanMessage(content="Skill gap analysis disabled")]
                     }
+                
+                # Ensure we have job roles
+                if not state.get('job_role_matches'):
+                    self.logger.warning("⚠️  No job roles available, skipping job fetch")
+                    return {
+                        "job_postings": [],
+                        "current_step": "job_fetch_skipped",
+                        "messages": [HumanMessage(content="No job roles to fetch postings for")]
+                    }
+                
+                # Initialize Phase 2 components if needed
+                self._initialize_phase2_components()
+                
+                if self.job_api_client is None:
+                    self.logger.error("❌ Job API client not initialized")
+                    return {
+                        "job_postings": [],
+                        "error": "Job API client initialization failed",
+                        "current_step": "job_fetch_failed"
+                    }
+                
+                self.logger.info("🔍 Fetching job postings from multiple APIs...")
+                all_jobs = []
+                
+                # Fetch jobs for each of the top 3 roles
+                for idx, job_role in enumerate(state['job_role_matches'][:3], 1):
+                    self.logger.info(f"📋 [{idx}/3] Fetching jobs for: {job_role.role_title}")
                     
-                    # Cleanup and close
-                    self.cleanup_downloaded_files()
-                    doc_store.close()
-                    
-                    self.logger.info("✅ Cache retrieval complete")
-                    return final_state
+                    try:
+                        jobs = self.job_api_client.search_jobs(
+                            job_title=job_role.role_title,
+                            max_results=10
+                        )
+                        all_jobs.extend(jobs)
+                        self.logger.info(f"    ✅ Found {len(jobs)} jobs")
+                    except Exception as e:
+                        self.logger.warning(f"    ⚠️  Failed to fetch jobs: {e}")
+                        continue
                 
-                # Step 4: No cache hit - run full pipeline
-                self.logger.log_section("🔄 PROCESSING NEW RESUME")
-                self.logger.info("ℹ️  No cache found - running full analysis pipeline")
+                self.logger.info(f"\n✅ Total jobs fetched: {len(all_jobs)}")
+                self.logger.info(f"   Sources: Adzuna, JSearch, Jooble")
                 
-                # Extract text for raw text storage
-                self.logger.info("📄 Extracting text from resume...")
-                raw_text = self.text_extractor.extract_text(file_name)
-                self.logger.info(f"✅ Extracted {len(raw_text)} characters, {len(raw_text.split())} words")
-                
-                # Build initial state for workflow
-                initial_state = {
-                    "messages": [HumanMessage(content=f"Processing {file_name}")],
-                    "file_id": file_id,
-                    "file_name": file_name,
-                    "raw_resume_text": raw_text,
-                    "parsed_resume": None,
-                    "job_role_matches": None,
-                    "resume_summary": None,
-                    "current_step": "download_complete",
-                    "error": None
+                return {
+                    "job_postings": all_jobs,
+                    "current_step": "job_fetch_complete",
+                    "messages": [HumanMessage(content=f"Fetched {len(all_jobs)} job postings")]
                 }
                 
-                # Run the full workflow (parse → analyze → summarize)
-                final_state = self.workflow.invoke(initial_state)
+            except Exception as e:
+                self.logger.error(f"❌ Job fetching failed: {str(e)}")
+                return {
+                    "job_postings": [],
+                    "error": f"Job fetch error: {str(e)}",
+                    "current_step": "job_fetch_failed"
+                }
+    
+    def _analyze_skill_gaps(self, state: AgentState) -> Dict[str, Any]:
+        """Node: Analyze skill gaps between resume and job market requirements.
+        
+        Args:
+            state: Current agent state
+            
+        Returns:
+            Updated state dictionary with skill gap analysis
+        """
+        self.logger.log_section("PHASE 2: ANALYZING SKILL GAPS")
+        
+        with self.logger.timer("Skill Gap Analysis"):
+            try:
+                # Skip if disabled or no data
+                if not state.get('enable_skill_gap', True):
+                    self.logger.info("⏭️  Skill gap analysis disabled")
+                    return {
+                        "skill_gap_analysis": None,
+                        "current_step": "skill_gap_skipped"
+                    }
                 
-                # Step 5: Save results to cache if successful
-                if final_state.get('parsed_resume') and final_state.get('current_step') == 'complete':
-                    self.logger.info("💾 Saving results to cache...")
-                    
-                    doc_store.save_cached_resume(
-                        resume_hash=resume_hash,
-                        file_name=file_name,
-                        parsed_data=final_state['parsed_resume'].model_dump(),
-                        job_roles=[match.model_dump() for match in final_state['job_role_matches']] if final_state.get('job_role_matches') else None,
-                        summary=final_state['resume_summary'].model_dump() if final_state.get('resume_summary') else None
-                    )
-                    
-                    self.logger.info("✅ Results cached for future use")
-                else:
-                    self.logger.warning("⚠️  Pipeline incomplete - results not cached")
+                if not state.get('job_postings'):
+                    self.logger.warning("⚠️  No job postings available for skill gap analysis")
+                    return {
+                        "skill_gap_analysis": None,
+                        "current_step": "skill_gap_skipped",
+                        "messages": [HumanMessage(content="No job postings to analyze")]
+                    }
                 
-                # Cleanup
-                self.cleanup_downloaded_files()
-                doc_store.close()
+                # Initialize Phase 2 components if needed
+                self._initialize_phase2_components()
                 
-                return final_state
+                if self.skill_gap_analyzer is None:
+                    self.logger.error("❌ Skill gap analyzer not initialized")
+                    return {
+                        "skill_gap_analysis": None,
+                        "error": "Skill gap analyzer initialization failed",
+                        "current_step": "skill_gap_failed"
+                    }
+                
+                # Extract resume skills
+                resume_skills = state['parsed_resume'].skills if state.get('parsed_resume') else []
+                job_roles = [match.role_title for match in state['job_role_matches'][:3]]
+                
+                self.logger.info(f"📊 Analyzing skill gaps...")
+                self.logger.info(f"   Resume skills: {len(resume_skills)}")
+                self.logger.info(f"   Job postings: {len(state['job_postings'])}")
+                self.logger.info(f"   Roles: {', '.join(job_roles)}")
+                
+                # Perform skill gap analysis
+                skill_gap = self.skill_gap_analyzer.analyze(
+                    resume_skills=resume_skills,
+                    job_postings=state['job_postings'],
+                    job_roles=job_roles
+                )
+                
+                self.logger.info(f"\n✅ Skill gap analysis complete!")
+                self.logger.info(f"   Common gaps across roles: {len(skill_gap.common_gaps)}")
+                self.logger.info(f"   Quick win skills: {len(skill_gap.quick_wins)}")
+                self.logger.info(f"   Long-term goals: {len(skill_gap.long_term_goals)}")
+                self.logger.info(f"   Overall market readiness: {skill_gap.overall_market_readiness:.1f}%")
+                
+                return {
+                    "skill_gap_analysis": skill_gap,
+                    "current_step": "complete",
+                    "messages": [HumanMessage(content="Skill gap analysis complete")]
+                }
                 
             except Exception as e:
-                self.logger.error(f"❌ Pipeline execution failed: {str(e)}")
-                # Cleanup even on error
-                self.cleanup_downloaded_files()
-                doc_store.close()
-                raise
-
-    def _analyze_job_roles_streaming(self, state: AgentState, token_callback=None) -> dict[str,any]:
-        
+                self.logger.error(f"❌ Skill gap analysis failed: {str(e)}")
+                import traceback
+                self.logger.error(traceback.format_exc())
+                return {
+                    "skill_gap_analysis": None,
+                    "error": f"Skill gap analysis error: {str(e)}",
+                    "current_step": "skill_gap_failed"
+                }
+    
+    # ===== STREAMING VARIANTS (EXISTING - KEEP AS-IS) =====
+    
+    def _analyze_job_roles_streaming(self, state: AgentState, token_callback=None) -> dict[str, any]:
         """Node: Analyze and recommend job roles WITH STREAMING.
         
         This is a hybrid approach:
@@ -462,44 +529,44 @@ Provide detailed feedback."""
         with self.logger.timer("Analyze Job Roles (Streaming)"):
             system_prompt = """You are an experienced career coach with deep knowledge of job markets and roles.
 
-    Based on the candidate's resume, identify the TOP 3 job roles they are best suited for.
-    For each role, provide:
-    1. Role title
-    2. Confidence score (0.0 to 1.0) - how well the candidate fits
-    3. Detailed reasoning for the recommendation
-    4. Key skills from their resume that match this role
+Based on the candidate's resume, identify the TOP 3 job roles they are best suited for.
+For each role, provide:
+1. Role title
+2. Confidence score (0.0 to 1.0) - how well the candidate fits
+3. Detailed reasoning for the recommendation
+4. Key skills from their resume that match this role
 
-    Consider:
-    - Years of experience
-    - Technical skills
-    - Domain expertise
-    - Career progression
-    - Industry trends
+Consider:
+- Years of experience
+- Technical skills
+- Domain expertise
+- Career progression
+- Industry trends
 
-    IMPORTANT: Format your response as a valid JSON array of objects with these exact fields:
-    - role_title (string)
-    - confidence_score (number between 0.0 and 1.0)
-    - reasoning (string)
-    - key_matching_skills (array of strings)
+IMPORTANT: Format your response as a valid JSON array of objects with these exact fields:
+- role_title (string)
+- confidence_score (number between 0.0 and 1.0)
+- reasoning (string)
+- key_matching_skills (array of strings)
 
-    Example format:
-    [
-    {
-        "role_title": "Senior Data Engineer",
-        "confidence_score": 0.92,
-        "reasoning": "Strong experience in...",
-        "key_matching_skills": ["Python", "SQL", "AWS"]
-    }
-    ]
+Example format:
+[
+{
+    "role_title": "Senior Data Engineer",
+    "confidence_score": 0.92,
+    "reasoning": "Strong experience in...",
+    "key_matching_skills": ["Python", "SQL", "AWS"]
+}
+]
 
-    Be realistic and specific in your recommendations."""
+Be realistic and specific in your recommendations."""
             
             resume_json = state['parsed_resume'].model_dump_json(indent=2)
             user_prompt = f"""Analyze this resume and recommend the top 3 job roles:
 
-    {resume_json}
+{resume_json}
 
-    Provide detailed analysis for each role in JSON format."""
+Provide detailed analysis for each role in JSON format."""
             
             try:
                 self.logger.info("🎯 Analyzing suitable job roles with streaming...")
@@ -514,11 +581,10 @@ Provide detailed feedback."""
                     temperature=self.llm.temperature,
                     streaming=True,
                     callbacks=[streaming_callback],
-                    format='json'  # Request JSON format from Ollama
+                    format='json'
                 )
                 
                 # Stream the response
-                from langchain_core.messages import HumanMessage, SystemMessage
                 response = streaming_llm.invoke([
                     SystemMessage(content=system_prompt),
                     HumanMessage(content=user_prompt)
@@ -533,7 +599,7 @@ Provide detailed feedback."""
                 import json
                 import re
                 
-                # Extract JSON from response (sometimes LLM adds extra text)
+                # Extract JSON from response
                 json_match = re.search(r'\[.*\]', complete_text, re.DOTALL)
                 if json_match:
                     json_str = json_match.group(0)
@@ -544,9 +610,8 @@ Provide detailed feedback."""
                 matches_data = json.loads(json_str)
                 
                 # Validate and convert to Pydantic models
-                from src.state import JobRoleMatch
                 job_matches = []
-                for match_dict in matches_data[:3]:  # Ensure only top 3
+                for match_dict in matches_data[:3]:
                     try:
                         job_match = JobRoleMatch(
                             role_title=match_dict.get('role_title', ''),
@@ -583,8 +648,7 @@ Provide detailed feedback."""
                     "current_step": "analysis_failed"
                 }
 
-
-    def _generate_summary_streaming(self, state: AgentState,token_callback=None) -> dict[str, any]:
+    def _generate_summary_streaming(self, state: AgentState, token_callback=None) -> dict[str, any]:
         """Node: Generate resume summary and quality assessment WITH STREAMING.
         
         Args:
@@ -597,37 +661,37 @@ Provide detailed feedback."""
         with self.logger.timer("Generate Resume Summary (Streaming)"):
             system_prompt = """You are an expert resume reviewer and editor.
 
-    Provide a comprehensive summary and quality assessment in JSON format with these exact fields:
-    - overall_summary (string): 2-3 sentence summary of candidate's profile
-    - years_of_experience (integer): Total years of professional experience
-    - key_strengths (array of strings): Top 3-5 strengths
-    - grammatical_issues (array of strings): Grammar and formatting issues found
-    - improvement_suggestions (array of strings): Specific actionable suggestions
-    - quality_score (number): Overall score from 0 to 10
+Provide a comprehensive summary and quality assessment in JSON format with these exact fields:
+- overall_summary (string): 2-3 sentence summary of candidate's profile
+- years_of_experience (integer): Total years of professional experience
+- key_strengths (array of strings): Top 3-5 strengths
+- grammatical_issues (array of strings): Grammar and formatting issues found
+- improvement_suggestions (array of strings): Specific actionable suggestions
+- quality_score (number): Overall score from 0 to 10
 
-    Example format:
-    {
-    "overall_summary": "Experienced data professional with...",
-    "years_of_experience": 5,
-    "key_strengths": ["Strong technical skills", "Leadership experience"],
-    "grammatical_issues": ["Inconsistent tense in bullets"],
-    "improvement_suggestions": ["Add metrics to achievements"],
-    "quality_score": 7.5
-    }
+Example format:
+{
+"overall_summary": "Experienced data professional with...",
+"years_of_experience": 5,
+"key_strengths": ["Strong technical skills", "Leadership experience"],
+"grammatical_issues": ["Inconsistent tense in bullets"],
+"improvement_suggestions": ["Add metrics to achievements"],
+"quality_score": 7.5
+}
 
-    Be constructive, specific, and actionable in your feedback."""
+Be constructive, specific, and actionable in your feedback."""
             
             resume_json = state['parsed_resume'].model_dump_json(indent=2)
             raw_text_preview = state.get('raw_resume_text', '')[:3000]
             
             user_prompt = f"""Review this resume and provide a comprehensive summary and quality assessment:
 
-    {resume_json}
+{resume_json}
 
-    Raw Resume Text (for grammar checking):
-    {raw_text_preview}
+Raw Resume Text (for grammar checking):
+{raw_text_preview}
 
-    Provide detailed feedback in JSON format."""
+Provide detailed feedback in JSON format."""
             
             try:
                 self.logger.info("📊 Generating resume summary with streaming...")
@@ -642,11 +706,10 @@ Provide detailed feedback."""
                     temperature=self.llm.temperature,
                     streaming=True,
                     callbacks=[streaming_callback],
-                    format='json'  # Request JSON format from Ollama
+                    format='json'
                 )
                 
                 # Stream the response
-                from langchain_core.messages import HumanMessage, SystemMessage
                 response = streaming_llm.invoke([
                     SystemMessage(content=system_prompt),
                     HumanMessage(content=user_prompt)
@@ -672,7 +735,6 @@ Provide detailed feedback."""
                 summary_data = json.loads(json_str)
                 
                 # Validate and convert to Pydantic model
-                from src.state import ResumeSummary
                 summary = ResumeSummary(
                     overall_summary=summary_data.get('overall_summary', ''),
                     years_of_experience=summary_data.get('years_of_experience'),
@@ -704,3 +766,153 @@ Provide detailed feedback."""
                     "error": f"Summary error: {str(e)}",
                     "current_step": "summary_failed"
                 }
+    
+    # ===== CLEANUP & PROCESS METHODS =====
+    
+    def cleanup_downloaded_files(self):
+        """Delete all downloaded resume files."""
+        self.logger.info("🗑️  Cleaning up downloaded files...")
+        
+        for filename in self.downloaded_files:
+            try:
+                if os.path.exists(filename):
+                    os.remove(filename)
+                    self.logger.info(f"✅ Deleted: {filename}")
+                else:
+                    self.logger.warning(f"File not found for cleanup: {filename}")
+            except Exception as e:
+                self.logger.error(f"Failed to delete {filename}: {str(e)}")
+        
+        self.downloaded_files.clear()
+        self.logger.info("✅ Cleanup complete")
+    
+    def process_resume(self, file_id: str, file_name: str, enable_skill_gap: bool = True) -> Dict[str, Any]:
+        """Process a resume through the entire pipeline with caching.
+        
+        Args:
+            file_id: Google Drive file ID
+            file_name: Name of the resume file
+            enable_skill_gap: Whether to enable Phase 2 skill gap analysis (default: True)
+            
+        Returns:
+            Final agent state with all results
+        """
+        self.logger.log_section("STARTING RESUME PROCESSING PIPELINE")
+        
+        with self.logger.timer("Total Resume Processing"):
+            # Initialize document store
+            doc_store = DocumentStore()
+            
+            try:
+                # Step 1: Download the resume
+                self.logger.info(f"📥 Downloading resume: {file_name}")
+                
+                temp_dir = Path("temp_resumes")
+                temp_dir.mkdir(exist_ok=True)
+                temp_file_path = temp_dir / file_name
+                
+                file_content = self.drive_handler.download_file(file_id, str(temp_file_path))
+                self.downloaded_files.append(str(temp_file_path))
+                
+                # Step 2: Compute hash
+                with self.logger.timer("Compute Resume Hash"):
+                    resume_hash = hash_file(str(temp_file_path))
+                    self.logger.info(f"🔑 Resume hash: {resume_hash[:16]}...")
+                
+                # Step 3: Check cache
+                cached_data = doc_store.get_cached_resume(resume_hash)
+                
+                if cached_data:
+                    self.logger.log_section("📦 USING CACHED RESULTS")
+                    self.logger.info(f"✅ Found cached analysis for this resume")
+                    self.logger.info(f"   Originally processed: {cached_data['created_at']}")
+                    self.logger.info(f"   Skipping Phase 1 analysis")
+                    
+                    # Reconstruct state from cache
+                    final_state = {
+                        "messages": [HumanMessage(content=f"Loaded cached analysis for {file_name}")],
+                        "file_id": file_id,
+                        "file_name": file_name,
+                        "raw_resume_text": "",
+                        "parsed_resume": ParsedResume.model_validate(cached_data['parsed_data']) if cached_data['parsed_data'] else None,
+                        "job_role_matches": [JobRoleMatch.model_validate(match) for match in cached_data['job_roles']] if cached_data['job_roles'] else None,
+                        "resume_summary": ResumeSummary.model_validate(cached_data['summary']) if cached_data['summary'] else None,
+                        "current_step": "complete",
+                        "error": None,
+                        "job_postings": [],
+                        "skill_gap_analysis": None,
+                        "enable_skill_gap": enable_skill_gap,
+                        "cache_hit": True
+                    }
+                    
+                    # If skill gap is enabled, run Phase 2 even with cached Phase 1
+                    if enable_skill_gap:
+                        self.logger.info("🔄 Running Phase 2 on cached results...")
+                        
+                        # Run Phase 2 nodes
+                        job_state = self._fetch_job_postings(final_state)
+                        final_state.update(job_state)
+                        
+                        if final_state.get('job_postings'):
+                            skill_state = self._analyze_skill_gaps(final_state)
+                            final_state.update(skill_state)
+                    
+                    # Cleanup and close
+                    self.cleanup_downloaded_files()
+                    doc_store.close()
+                    
+                    return final_state
+                
+                # Step 4: No cache - run full pipeline
+                self.logger.log_section("🔄 PROCESSING NEW RESUME")
+                
+                # Extract text
+                self.logger.info("📄 Extracting text from resume...")
+                raw_text = self.text_extractor.extract_text(str(temp_file_path))
+                self.logger.info(f"✅ Extracted {len(raw_text)} characters")
+                
+                # Build initial state
+                initial_state = {
+                    "messages": [HumanMessage(content=f"Processing {file_name}")],
+                    "file_id": file_id,
+                    "file_name": file_name,
+                    "raw_resume_text": raw_text,
+                    "parsed_resume": None,
+                    "job_role_matches": None,
+                    "resume_summary": None,
+                    "current_step": "download_complete",
+                    "error": None,
+                    "job_postings": [],
+                    "skill_gap_analysis": None,
+                    "enable_skill_gap": enable_skill_gap,
+                    "cache_hit": False
+                }
+                
+                # Run the full workflow
+                final_state = self.workflow.invoke(initial_state)
+                
+                # Step 5: Save Phase 1 results to cache
+                if final_state.get('parsed_resume') and final_state.get('current_step') == 'complete':
+                    self.logger.info("💾 Saving Phase 1 results to cache...")
+                    
+                    doc_store.save_cached_resume(
+                        resume_hash=resume_hash,
+                        file_name=file_name,
+                        parsed_data=final_state['parsed_resume'].model_dump(),
+                        job_roles=[match.model_dump() for match in final_state['job_role_matches']] if final_state.get('job_role_matches') else None,
+                        summary=final_state['resume_summary'].model_dump() if final_state.get('resume_summary') else None
+                    )
+                    
+                    self.logger.info("✅ Phase 1 results cached")
+                
+                # Cleanup
+                self.cleanup_downloaded_files()
+                doc_store.close()
+                
+                return final_state
+                
+            except Exception as e:
+                self.logger.error(f"❌ Pipeline execution failed: {str(e)}")
+                self.cleanup_downloaded_files()
+                doc_store.close()
+                raise
