@@ -10,6 +10,16 @@ from src.logger import get_logger
 
 logger = get_logger()
 
+from typing import List, Tuple
+from dataclasses import dataclass
+
+@dataclass
+class SkillMatchResult:
+    """Result of skill comparison between resume and job requirements."""
+    matched_skills: List[str]
+    missing_skills: List[str]
+    match_percentage: float
+
 
 class SkillComparator:
     """Compare and match skills between resume and job requirements."""
@@ -141,6 +151,38 @@ class SkillComparator:
         missing = list(dict.fromkeys(missing))
         
         return matched, missing
+    def find_matches(
+        self, 
+        resume_skills: List[str], 
+        job_skills: List[str]
+    ) -> SkillMatchResult:
+        """
+        Find matching and missing skills with percentage calculation.
+        
+        This is a wrapper around find_matching_skills() that returns
+        a structured result object for easier testing and display.
+        
+        Args:
+            resume_skills: Skills from candidate's resume
+            job_skills: Skills required by job posting
+            
+        Returns:
+            SkillMatchResult with matched skills, missing skills, and match percentage
+        """
+        # Use existing find_matching_skills method
+        matched, missing = self.find_matching_skills(resume_skills, job_skills)
+        
+        # Calculate match percentage
+        if job_skills:
+            match_percentage = (len(matched) / len(job_skills)) * 100
+        else:
+            match_percentage = 0.0
+        
+        return SkillMatchResult(
+            matched_skills=matched,
+            missing_skills=missing,
+            match_percentage=match_percentage
+        )
     
     def calculate_match_percentage(
         self, 

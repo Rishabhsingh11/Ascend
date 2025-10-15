@@ -107,9 +107,12 @@ class JobSearchAgent:
                     self.skill_extractor, 
                     self.skill_comparator
                 )
-                self.logger.info("✅ Phase 2 components initialized")
+                # NEW: Initialize JobStore for Phase 3
+                from src.jobs.job_store import JobStore
+                self.job_store = JobStore()
+                self.logger.info("✅ Phase 2 and 3 components initialized")
             except Exception as e:
-                self.logger.warning(f"⚠️  Phase 2 initialization failed: {e}")
+                self.logger.warning(f"⚠️  Phase 2/3 initialization failed: {e}")
                 self.logger.warning("   Skill gap analysis will be skipped")
     
     def _build_graph(self) -> StateGraph:
@@ -356,13 +359,13 @@ Provide detailed feedback."""
     # ===== NEW PHASE 2 NODES =====
     
     def _fetch_job_postings(self, state: AgentState) -> Dict[str, Any]:
-        """Node: Fetch job postings for the top 3 recommended roles.
+        """Node: Fetch job postings and save to database.
         
         Args:
             state: Current agent state
             
         Returns:
-            Updated state dictionary with job postings
+            Updated state dictionary with job postings and session_id
         """
         self.logger.log_section("PHASE 2: FETCHING JOB POSTINGS")
         
@@ -386,7 +389,7 @@ Provide detailed feedback."""
                         "messages": [HumanMessage(content="No job roles to fetch postings for")]
                     }
                 
-                # Initialize Phase 2 components if needed
+                # Initialize Phase 2 & 3 components if needed
                 self._initialize_phase2_components()
                 
                 if self.job_api_client is None:
@@ -397,7 +400,21 @@ Provide detailed feedback."""
                         "current_step": "job_fetch_failed"
                     }
                 
+                # Get search parameters from config or state
+                from src.config import get_settings
+                settings = get_settings()
+                
+                posting_hours = state.get('posting_hours', settings.default_posting_hours)
+                country = state.get('country', settings.default_country)
+                employment_type = state.get('employment_type', settings.employment_type)
+                max_results = state.get('max_results', settings.jobs_per_api_call)
+                
                 self.logger.info("🔍 Fetching job postings from multiple APIs...")
+                self.logger.info(f"   Country: {country}")
+                self.logger.info(f"   Posted within: {posting_hours} hours")
+                self.logger.info(f"   Employment type: {employment_type}")
+                self.logger.info(f"   Max results per role: {max_results}")
+                
                 all_jobs = []
                 
                 # Fetch jobs for each of the top 3 roles
@@ -407,7 +424,10 @@ Provide detailed feedback."""
                     try:
                         jobs = self.job_api_client.search_jobs(
                             job_title=job_role.role_title,
-                            max_results=10
+                            country=country,
+                            posting_hours=posting_hours,
+                            employment_type=employment_type,
+                            max_results=max_results
                         )
                         all_jobs.extend(jobs)
                         self.logger.info(f"    ✅ Found {len(jobs)} jobs")
@@ -418,8 +438,62 @@ Provide detailed feedback."""
                 self.logger.info(f"\n✅ Total jobs fetched: {len(all_jobs)}")
                 self.logger.info(f"   Sources: Adzuna, JSearch, Jooble")
                 
+                # ===== NEW: Save jobs to database =====
+                session_id = None
+                
+                if all_jobs and self.job_store:
+                    try:
+                        self.logger.info("💾 Saving jobs to database...")
+                        
+                        # Extract candidate info from parsed resume
+                        parsed_resume = state.get('parsed_resume')
+                        contact = parsed_resume.contact_info if parsed_resume else None
+                        
+                        # Get or compute resume hash
+                        from src.utils import hash_file
+                        resume_hash = state.get('resume_hash')
+                        
+                        # If no hash in state, compute from file
+                        if not resume_hash and state.get('file_path'):
+                            resume_hash = hash_file(state['file_path'])
+                        elif not resume_hash:
+                            # Fallback: use file_id or generate temporary hash
+                            import hashlib
+                            resume_hash = hashlib.md5(
+                                (state.get('file_name', 'unknown') + 
+                                state.get('file_id', 'unknown')).encode()
+                            ).hexdigest()
+                        
+                        # Create job search session
+                        session_id = self.job_store.create_session(
+                            resume_hash=resume_hash,
+                            resume_filename=state.get('file_name', 'unknown'),
+                            candidate_name=contact.name if contact else None,
+                            candidate_email=contact.email if contact else None,
+                            job_roles=[r.role_title for r in state['job_role_matches'][:3]],
+                            market_readiness=None  # Will update after skill gap analysis
+                        )
+                        
+                        self.logger.info(f"   Created session: {session_id}")
+                        
+                        # Save all jobs in batch
+                        saved_count = self.job_store.save_jobs_batch(
+                            session_id=session_id,
+                            jobs=all_jobs,
+                            job_roles=[r.role_title for r in state['job_role_matches'][:3]]
+                        )
+                        
+                        self.logger.info(f"   💾 Saved {saved_count} jobs to database")
+                        
+                    except Exception as e:
+                        self.logger.error(f"❌ Failed to save jobs to database: {e}")
+                        # Don't fail the entire process if DB save fails
+                        session_id = None
+                
                 return {
                     "job_postings": all_jobs,
+                    "job_session_id": session_id,  # NEW: Track session ID
+                    "posting_hours": posting_hours,
                     "current_step": "job_fetch_complete",
                     "messages": [HumanMessage(content=f"Fetched {len(all_jobs)} job postings")]
                 }
@@ -431,9 +505,10 @@ Provide detailed feedback."""
                     "error": f"Job fetch error: {str(e)}",
                     "current_step": "job_fetch_failed"
                 }
+
     
     def _analyze_skill_gaps(self, state: AgentState) -> Dict[str, Any]:
-        """Node: Analyze skill gaps between resume and job market requirements.
+        """Node: Analyze skill gaps and update database with market readiness.
         
         Args:
             state: Current agent state
@@ -494,6 +569,24 @@ Provide detailed feedback."""
                 self.logger.info(f"   Long-term goals: {len(skill_gap.long_term_goals)}")
                 self.logger.info(f"   Overall market readiness: {skill_gap.overall_market_readiness:.1f}%")
                 
+                # ===== NEW: Update database with market readiness =====
+                if skill_gap and self.job_store and state.get('job_session_id'):
+                    try:
+                        session_id = state['job_session_id']
+                        
+                        self.logger.info("💾 Updating database with market readiness...")
+                        
+                        self.job_store.update_session_market_readiness(
+                            session_id=session_id,
+                            market_readiness=skill_gap.overall_market_readiness
+                        )
+                        
+                        self.logger.info(f"   ✅ Database updated: {skill_gap.overall_market_readiness:.1f}% readiness")
+                        
+                    except Exception as e:
+                        self.logger.warning(f"⚠️  Failed to update database: {e}")
+                        # Don't fail the process if DB update fails
+                
                 return {
                     "skill_gap_analysis": skill_gap,
                     "current_step": "complete",
@@ -509,6 +602,7 @@ Provide detailed feedback."""
                     "error": f"Skill gap analysis error: {str(e)}",
                     "current_step": "skill_gap_failed"
                 }
+
     
     # ===== STREAMING VARIANTS (EXISTING - KEEP AS-IS) =====
     
