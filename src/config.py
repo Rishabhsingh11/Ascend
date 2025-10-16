@@ -81,11 +81,50 @@ class Settings(BaseSettings):
         default=20,
         description="Default number of results per page for API calls"
     )
+
+    default_posting_hours: int = Field(
+        default=24,
+        description="Default hours for job posting filter (24 = last 24 hours)"
+    )
+    employment_type: str = Field(
+        default="FULLTIME",
+        description="Employment type filter (FULLTIME, PARTTIME, CONTRACTOR)"
+    )
+    jobs_per_api_call: int = Field(
+        default=20,
+        description="Number of jobs to fetch per API call (mindful of rate limits)"
+    )
+    allow_retry_with_relaxed_filters: bool = Field(
+        default=True,
+        description="Allow user to retry with relaxed date filters if no jobs found"
+    )
     
     # ===== LOGGING CONFIGURATION =====
     log_level: str = Field(
         default="INFO",
         description="Logging level (DEBUG, INFO, WARNING, ERROR)"
+    )
+
+    google_owner_email: str = Field(
+        default="rishabhdineshsingh@gmail.com",
+        description="Email to transfer sheet ownership to"
+    )
+
+    smtp_server: str = Field(
+        default="smtp.gmail.com",
+        description="SMTP server for sending emails"
+    )
+    smtp_port: int = Field(
+        default=587,
+        description="SMTP port (587 for TLS)"
+    )
+    sender_email: Optional[str] = Field(
+        default=None,
+        description="Email address to send from"
+    )
+    sender_password: Optional[str] = Field(
+        default=None,
+        description="Email password or app password"
     )
     
     class Config:
