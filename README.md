@@ -4,7 +4,7 @@
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.50.0-FF4B4B.svg)](https://streamlit.io)
 [![LangChain](https://img.shields.io/badge/LangChain-0.3.27-green.svg)](https://langchain.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Phase](https://img.shields.io/badge/Phase-1%20Complete-success.svg)](https://github.com/Rishabhsingh11/Ascend)
+[![Phase](https://img.shields.io/badge/Phase-3%20Complete-success.svg)](https://github.com/Rishabhsingh11/Ascend)
 
 > **Transform your resume into career opportunities with AI-powered analysis, intelligent job matching, and actionable improvement suggestions.**
 
@@ -41,6 +41,10 @@
 ✅ **Dual Interface**: Both CLI and beautiful Streamlit web UI  
 ✅ **Production-Ready**: Hash-based deduplication, error handling, comprehensive logging  
 ✅ **Real-Time Streaming**: Watch AI analyze your resume in real-time  
+✅ **End-to-End Solution**: Resume analysis → Job search → Skill gap → Email delivery  
+✅ **Multi-API Job Search**: Aggregates from Adzuna, JSearch, and Jooble  
+✅ **Automated Email Delivery**: Professional HTML emails with CSV attachments  
+✅ **Market Readiness Score**: Know exactly how job-ready you are (0-100%)
 
 ---
 
@@ -66,6 +70,22 @@
 - **Streamlit Web App**: Clean, modern interface with collapsible sections and progress tracking
 - **CLI Tool**: Terminal-based interface for automation and scripting
 - **Responsive Design**: Works on desktop, tablet, and mobile browsers
+
+### 💼 Job Search & Skill Gap Analysis (Phase 2)
+- **Multi-API Job Search**: Fetches jobs from Adzuna, JSearch, and Jooble simultaneously
+- **Skill Extraction**: Automatically identifies required skills from job descriptions
+- **Market Readiness Score**: Calculates your job-readiness percentage (0-100%)
+- **Skill Gap Analysis**: Identifies missing skills with learning recommendations
+- **Action Plans**: Immediate, 1-month, 3-month, and 6-month learning roadmaps
+- **Job History Database**: SQLite storage of all job searches and analyses
+
+### 📧 CSV Export & Email Integration (Phase 3)
+- **Automated CSV Generation**: Clean job recommendations file with status tracking
+- **Email Delivery**: Professional HTML emails with market readiness metrics
+- **Gmail SMTP Support**: Secure app password authentication
+- **Status Tracking**: Built-in column to track application progress
+- **Database Management UI**: View cache and job history statistics
+- **Automatic Cleanup**: Configurable cleanup for logs (24h) and exports (keep 5 latest)
 
 ---
 
@@ -111,6 +131,21 @@
 - **Python 3.10+** - Core language
 - **pytest** - Unit testing framework
 - **python-dotenv** - Environment configuration
+
+### Job Search APIs
+- **Adzuna API** - UK-based job search aggregator
+- **JSearch (RapidAPI)** - Global job search with 20M+ listings
+- **Jooble API** - International job board integration
+
+### Email & Export
+- **SMTP (Gmail)** - Email delivery with app passwords
+- **CSV** - Job recommendations export
+- **HTML Email Templates** - Professional email formatting
+
+### Additional Storage
+- **Job History Database** - SQLite storage for job searches
+- **Skill Gap Tracking** - Historical market readiness data
+
 
 ---
 
@@ -168,6 +203,24 @@ Google Drive Configuration (optional)
 Logging
 - LOG_LEVEL=INFO
 
+Email Configuration (for job recommendations delivery)
+- SMTP_SERVER=smtp.gmail.com
+- SMTP_PORT=587
+- SENDER_EMAIL=your-email@gmail.com
+- SENDER_PASSWORD=your-app-password `Generate at: https://myaccount.google.com/apppasswords`
+
+Job Search Configuration
+- DEFAULT_COUNTRY=us
+- MAX_JOBS_PER_ROLE=20
+- DEFAULT_POSTING_HOURS=24
+
+API Keys (optional - has free tiers)
+- ADZUNA_APP_ID=your-adzuna-id
+- ADZUNA_APP_KEY=your-adzuna-key
+- JSEARCH_API_KEY=your-rapidapi-key
+- JOOBLE_API_KEY=your-jooble-key
+
+
 
 ### Create Required Directories
 
@@ -215,6 +268,37 @@ The app will open in your browser at `http://localhost:8501`
 **Via CLI:**
 - Follow interactive prompts to select resume from Google Drive folder
 
+## 📧 Email Setup Guide
+
+To receive job recommendations via email, you need to set up Gmail app passwords:
+
+### Step 1: Enable 2-Factor Authentication
+1. Go to [Google Account Security](https://myaccount.google.com/security)
+2. Under "How you sign in to Google", enable **2-Step Verification**
+
+### Step 2: Generate App Password
+1. Go to [App Passwords](https://myaccount.google.com/apppasswords)
+2. Select **Mail** and **Other (Custom name)**
+3. Enter "Ascend Job App"
+4. Click **Generate**
+5. Copy the 16-character password (remove spaces)
+
+### Step 3: Update `.env`
+
+```
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SENDER_EMAIL=your-email@gmail.com
+SENDER_PASSWORD=abcdefghijklmnop # Paste 16-char app password here
+```
+
+### Email Features
+- 📊 Market readiness percentage with color coding
+- 📋 Job count and summary
+- 📎 CSV attachment with all job details
+- 📅 Next steps and action items
+- 🎨 Professional HTML formatting
+
 ---
 
 ## 📚 Usage Guide
@@ -261,59 +345,74 @@ The app will open in your browser at `http://localhost:8501`
 ## 📁 Project Structure
 
 ```
-Ascend/
-├── src/ # Source code
-│ ├── UI/ # Streamlit UI components
-│ │ ├── components/ # Reusable UI components
-│ │ │ ├── init.py
-│ │ │ ├── cache_viewer.py # Cache statistics UI
-│ │ │ ├── results.py # Results display
-│ │ │ ├── sidebar.py # Navigation sidebar
-│ │ │ └── upload.py # Upload handlers
-│ │ ├── styles/
-│ │ │ └── custom.css # Custom styling
-│ │ ├── app.py # Main Streamlit app
-│ │ └── streaming_utils.py # Streaming helpers
-│ │
-│ ├── agent.py # LangGraph agent orchestration
-│ ├── callbacks.py # LLM streaming callbacks
-│ ├── config.py # Configuration management
-│ ├── document_store.py # SQLite cache layer
-│ ├── enhanced_resume_parser.py # PDFPlumber-based parser
-│ ├── google_drive_handler.py # Google Drive integration
-│ ├── logger.py # Custom logging
-│ ├── resume_parser.py # Text extraction
-│ ├── state.py # Pydantic state models
-│ └── utils.py # Helper functions
-│
-├── tests/ # Test suite
-│ ├── init.py
-│ ├── compare_files.py
-│ ├── debug_script.py
-│ ├── streamlit_streaming_demo.py
-│ ├── test_agent.py
-│ ├── test_google_drive.py
-│ ├── test_ollama_integration.py
-│ ├── test_parser.py
-│ └── test_resume_parser.py
-│
-├── db/ # SQLite database
-│ └── resume_cache.db # Cached resume analyses
-│
-├── logs/ # Application logs
-│ └── agent_run_YYYYMMDD_HHMMSS.log
-│
-├── credentials/ # Google Cloud credentials
-│ └── credentials.json # (not in git)
-│
-├── temp_resumes/ # Temporary file storage
-│
-├── .env # Environment variables (not in git)
-├── .gitignore # Git ignore rules
-├── main.py # CLI entry point
-├── streamlit_app.py # Streamlit entry point
-├── requirements.txt # Python dependencies
-└── README.md # This file
+db/
+    ├── job_history_test.db
+    ├── job_history.db
+    └── resume_cache.db
+src/
+    ├── api/
+        ├── __init__.py
+        ├── adzuna_client.py
+        ├── job_api_client.py
+        ├── jooble_client.py
+        └── jsearch_client.py
+    ├── jobs/
+        └── job_store.py
+    ├── skills/
+        ├── __init__.py
+        ├── skill_comparator.py
+        ├── skill_extractor.py
+        └── skill_gap_analyzer.py
+    ├── UI/
+        ├── components/
+            ├── __inti__.py
+            ├── cache_viewer.py
+            ├── results.py
+            ├── sidebar.py
+            ├── skill_gap_viewer.py
+            └── upload.py
+        ├── styles/
+            └── custom.css
+        ├── app.py
+        └── streaming_utils.py
+    ├── __init__.py
+    ├── agent.py
+    ├── callbacks.py
+    ├── cleanup.py
+    ├── config.py
+    ├── csv_job_exporter.py
+    ├── document_store.py
+    ├── email_sender.py
+    ├── enhanced_resume_parser.py
+    ├── google_drive_handler.py
+    ├── logger.py
+    ├── resume_parser.py
+    ├── state.py
+    └── utils.py
+tests/
+    ├── __init__.py
+    ├── cleanup_service_account.py
+    ├── compare_files.py
+    ├── debug_script.py
+    ├── get_folder_id.py
+    ├── streamlit_streaming_demo.py
+    ├── test_agent.py
+    ├── test_api_clients.py
+    ├── test_csv_exporter.py
+    ├── test_email_sender.py
+    ├── test_google_drive.py
+    ├── test_google_sheets.py
+    ├── test_job_store.py
+    ├── test_ollama_integration.py
+    ├── test_parser.py
+    ├── test_resume_parser.py
+    └── test_skill_gap.py
+.gitignore
+main.py
+output_result.json
+README.md
+requirements.txt
+streamlit_app.py
 ```
 
 
@@ -407,6 +506,63 @@ Next upload
 will be cached
 ```
 
+### 4. Phase 2: Job Search & Skill Gap Analysis
+
+```
+Job Role Matches
+│
+▼
+┌──────────────────────┐
+│ fetch_job_postings │ Searches Adzuna, JSearch, Jooble
+└──────────┬───────────┘ Aggregates ~20 jobs per role
+│
+▼
+┌──────────────────────┐
+│ save_to_database │ Stores jobs in SQLite
+└──────────┬───────────┘ Creates search session
+│
+▼
+┌──────────────────────┐
+│ analyze_skill_gaps │ Extracts skills from job descriptions
+└──────────┬───────────┘ Compares with resume skills
+│ Calculates market readiness (0-100%)
+│ Generates learning roadmap
+▼
+Skill Gap Analysis
+(Market Readiness Score)
+```
+
+### 5. Phase 3: Export & Email Delivery
+
+```
+Skill Gap Analysis
+│
+▼
+┌──────────────────────┐
+│ create_csv │ Generates clean CSV
+└──────────┬───────────┘ Job recommendations with:
+│ - Title, Company, Location
+│ - Salary, Posted Date
+│ - Status (Not Applied)
+│ - Notes (empty)
+│
+▼
+┌──────────────────────┐
+│ send_email │ Professional HTML email
+└──────────┬───────────┘ - Market readiness %
+│ - Job count
+│ - Next steps
+│ - CSV attachment
+│
+▼
+┌──────────────────────┐
+│ cleanup │ Delete old logs (>24h)
+└──────────────────────┘ Keep latest 5 exports
+```
+
+
+
+
 
 **Cache Benefits:**
 - **Speed**: 157x faster for cached resumes (5s vs 14 min)
@@ -419,16 +575,19 @@ will be cached
 
 ### Benchmarks
 
-| Metric | Cache HIT | Cache MISS |
-|--------|-----------|------------|
-| **Resume Parsing** | 0.5s | 1-2s |
-| **Hash Computation** | 0.3s | 0.3s |
-| **Cache Lookup** | 0.2s | 0.2s |
-| **Job Role Analysis** | Simulated (1.5s) | Real LLM (5-7 min) |
-| **Summary Generation** | Simulated (1.5s) | Real LLM (7-9 min) |
-| **Total Time** | **~5 seconds** ⚡ | **12-16 minutes** 🐢 |
-| **Speedup** | **157x faster** | Baseline |
-
+| Metric | Cache HIT | Cache MISS (Phase 1 Only) | Full Pipeline (Phase 1-3) |
+|--------|-----------|----------------------------|---------------------------|
+| **Resume Parsing** | 0.5s | 1-2s | 1-2s |
+| **Hash Computation** | 0.3s | 0.3s | 0.3s |
+| **Cache Lookup** | 0.2s | 0.2s | 0.2s |
+| **Job Role Analysis** | Simulated (1.5s) | Real LLM (5-7 min) | Real LLM (5-7 min) |
+| **Summary Generation** | Simulated (1.5s) | Real LLM (7-9 min) | Real LLM (7-9 min) |
+| **Job Search (3 roles)** | N/A | N/A | 5-10s (API calls) |
+| **Skill Gap Analysis** | N/A | N/A | 2-3s |
+| **CSV & Email** | N/A | N/A | 1-2s |
+| **Total Time** | **~5 seconds** ⚡ | **12-16 minutes** 🐢 | **13-18 minutes** 🚀 |
+| **Jobs Found** | 0 | 0 | ~60 jobs |
+| **Market Readiness** | N/A | N/A | Calculated (0-100%) |
 ---
 
 ## 🗺️ Roadmap
@@ -443,22 +602,24 @@ will be cached
 - [x] Dual interfaces (CLI + Streamlit)
 - [x] Comprehensive logging
 
-### 🚧 Phase 2A (In Progress)
-- [ ] **Skills Gap Analysis**: Compare resume skills vs job description requirements
-- [ ] **Job Board Integration**: Live job search via LinkedIn/Indeed APIs
+### ✅ Phase 2 (Complete)
+- [x] **Multi-API Job Search**: Adzuna, JSearch, Jooble integration
+- [x] **Skills Gap Analysis**: Compare resume vs job requirements
+- [x] **Market Readiness Score**: Calculate job-readiness percentage
+- [x] **Learning Roadmap**: Immediate, 1-month, 3-month, 6-month plans
+- [x] **Job History Database**: SQLite storage with session tracking
+
+### ✅ Phase 3 (Complete)
+- [x] **CSV Export**: Clean job recommendations with status tracking
+- [x] **Email Integration**: Gmail SMTP with HTML templates
+- [x] **Market Readiness in Email**: Display percentage in email
+- [x] **Database Manager UI**: View cache and job history
+- [x] **Automatic Cleanup**: Configurable log and export cleanup
+- [x] **Email Validation**: Robust extraction from pipe-separated contact info
+
+### 🚧 Phase 4 (In Progress)
 - [ ] **ATS Optimization**: Detect ATS-unfriendly elements (multi-column, tables, graphics)
 - [ ] **Keyword Extraction**: Identify missing keywords from target job descriptions
+- [ ] **Resume Comparison**: Side-by-side before/after analysis
 
-### 📅 Phase 2B (Planned)
-- [ ] **Cover Letter Generation**: AI-generated personalized cover letters
-- [ ] **Interview Prep**: Common questions + suggested answers based on resume
-- [ ] **Resume Rewriting**: LLM-powered bullet point improvements
-- [ ] **Multi-Language Support**: Parse and analyze non-English resumes
-
-### 🔮 Phase 3 (Future)
-- [ ] **Multi-Agent Architecture**: Parallel processing for faster analysis
-- [ ] **Custom LLM Fine-Tuning**: Domain-specific resume analysis models
-- [ ] **API Endpoints**: RESTful API for programmatic access
-- [ ] **Chrome Extension**: Analyze resumes directly from LinkedIn profiles
-- [ ] **Collaborative Features**: Team-based resume review workflows
 
