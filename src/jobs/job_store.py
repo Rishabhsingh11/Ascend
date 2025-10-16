@@ -490,6 +490,43 @@ class JobStore:
             
             logger.debug(f"Updated market readiness for {session_id}: {market_readiness}%")
 
+    def get_all_sessions(self, limit: int = 50) -> List[Dict]:
+        """Get all job search sessions."""
+        try:
+            cursor = self.conn.cursor()
+            
+            cursor.execute("""
+                SELECT 
+                    js.session_id,
+                    js.resume_filename,
+                    js.candidate_name,
+                    js.created_at,
+                    js.market_readiness,
+                    COUNT(j.id) as jobs_count
+                FROM job_search_sessions js
+                LEFT JOIN jobs j ON js.session_id = j.session_id
+                GROUP BY js.session_id
+                ORDER BY js.created_at DESC
+                LIMIT ?
+            """, (limit,))
+            
+            sessions = []
+            for row in cursor.fetchall():
+                sessions.append({
+                    'session_id': row[0],
+                    'resume_filename': row[1],
+                    'candidate_name': row[2],
+                    'created_at': row[3],
+                    'market_readiness': row[4],
+                    'jobs_count': row[5]
+                })
+            
+            return sessions
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get sessions: {e}")
+            return []
+
 
 
 logger.info("✅ JobStore module initialized")

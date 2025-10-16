@@ -104,6 +104,28 @@ class Settings(BaseSettings):
         default="INFO",
         description="Logging level (DEBUG, INFO, WARNING, ERROR)"
     )
+
+    google_owner_email: str = Field(
+        default="rishabhdineshsingh@gmail.com",
+        description="Email to transfer sheet ownership to"
+    )
+
+    smtp_server: str = Field(
+        default="smtp.gmail.com",
+        description="SMTP server for sending emails"
+    )
+    smtp_port: int = Field(
+        default=587,
+        description="SMTP port (587 for TLS)"
+    )
+    sender_email: Optional[str] = Field(
+        default=None,
+        description="Email address to send from"
+    )
+    sender_password: Optional[str] = Field(
+        default=None,
+        description="Email password or app password"
+    )
     
     class Config:
         """Pydantic configuration."""

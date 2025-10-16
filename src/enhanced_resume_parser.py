@@ -7,6 +7,7 @@ from typing import List, Dict, Optional
 # ✅ IMPORT PYDANTIC MODELS FROM state.py (no duplication!)
 from src.state import ContactInfo, Experience, Education, ParsedResume
 from src.logger import get_logger
+logger = get_logger()
 
 
 
@@ -25,9 +26,27 @@ SECTION_KEYWORDS = {
 # ============= Helper Functions =============
 
 def extract_email(text: str) -> Optional[str]:
-    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-    match = re.search(email_pattern, text)
-    return match.group(0) if match else None
+    """Extract clean email address using regex, handling pipe-separated content."""
+    if not text:
+        return None
+    
+    # Correct pattern - NO pipe in character class
+    # [A-Za-z] not [A-Z|a-z]
+    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
+    
+    # Find all email matches in the text
+    matches = re.findall(email_pattern, text, re.IGNORECASE)
+    
+    if matches:
+        # Return the first valid email found (lowercase)
+        email = matches[0].lower()
+        
+        # Additional validation: ensure it doesn't contain invalid characters
+        if all(char not in email for char in ['|', ' ', '\n', '\r', '\t']):
+            return email
+    
+    return None
+
 
 
 def extract_phone(text: str) -> Optional[str]:
@@ -37,15 +56,36 @@ def extract_phone(text: str) -> Optional[str]:
 
 
 def extract_linkedin(text: str) -> Optional[str]:
+    """Extract LinkedIn URL with improved pattern matching."""
+    
+    # Pattern 1: Full URL
     linkedin_pattern = r'(?:https?://)?(?:www\.)?linkedin\.com/in/[A-Za-z0-9_-]+'
     match = re.search(linkedin_pattern, text, re.IGNORECASE)
+    
     if match:
-        return match.group(0)
-    if 'linkedin' in text.lower():
+        url = match.group(0)
+        # Ensure it starts with https://
+        if not url.startswith('http'):
+            url = f"https://{url}"
+        return url
+    
+    # Pattern 2: Pipe-separated text with "linkedin" keyword
+    if 'linkedin' in text.lower() and '|' in text:
         parts = text.split('|')
         for part in parts:
-            if 'linkedin' in part.lower() and len(part.strip()) > 8:
-                return part.strip()
+            part = part.strip()
+            if 'linkedin' in part.lower():
+                # Try to extract URL from this part
+                match = re.search(linkedin_pattern, part, re.IGNORECASE)
+                if match:
+                    url = match.group(0)
+                    if not url.startswith('http'):
+                        url = f"https://{url}"
+                    return url
+                # Return the LinkedIn text if it's reasonable length
+                elif len(part) > 8 and len(part) < 100:
+                    return part
+    
     return None
 
 
@@ -160,29 +200,36 @@ class EnhancedResumeParser:
         return all_lines
     
     def extract_contact_info(self, lines: List[Dict]) -> ContactInfo:
-        """Extract contact information from first few lines."""
+        """Extract contact information from first few lines with improved email extraction."""
+        
+        # Combine first 10 lines for contact info search
         contact_text = ' '.join([line['text'] for line in lines[:10]])
         
-        # Extract name (first bold line with larger font, or first non-empty line)
+        # ===== EXTRACT NAME =====
         name = None
         for line in lines[:5]:
-            if line['text'] and not extract_email(line['text']):
-                # Check if it's a name line (bold OR large font OR all caps)
-                is_name = (
-                    line['font_size'] >= 11 or  # Lowered from 13
-                    line['bold'] or
-                    line['text'].isupper()  # All caps names
-                )
-                if is_name:
-                    # Clean the name (remove email/phone if present)
-                    name_text = line['text'].split('|')[0].strip()
-                    name = name_text
+            if line['text'] and line['font_size'] >= 13 and not extract_email(line['text']):
+                name = line['text']
+                break
+        
+        # ===== EXTRACT EMAIL (with improved handling) =====
+        email = extract_email(contact_text)
+        
+        # If not found in combined text, try line by line
+        if not email:
+            for line in lines[:10]:
+                email = extract_email(line['text'])
+                if email:
+                    logger.debug(f"Found email in line: {line['text'][:50]}...")
                     break
         
-        email = extract_email(contact_text)
+        # ===== EXTRACT PHONE =====
         phone = extract_phone(contact_text)
+        
+        # ===== EXTRACT LINKEDIN =====
         linkedin = extract_linkedin(contact_text)
         
+        # ===== EXTRACT LOCATION =====
         location = None
         for line in lines[:5]:
             text = line['text']
@@ -190,7 +237,21 @@ class EnhancedResumeParser:
                 location = text.split('|')[0].strip()
                 break
         
-        return ContactInfo(name=name, email=email, phone=phone, linkedin=linkedin, location=location)
+        # Log what was extracted
+        logger.debug(f"Contact extraction:")
+        logger.debug(f"  Name: {name or 'Not found'}")
+        logger.debug(f"  Email: {email or 'Not found'}")
+        logger.debug(f"  Phone: {phone or 'Not found'}")
+        logger.debug(f"  LinkedIn: {linkedin or 'Not found'}")
+        logger.debug(f"  Location: {location or 'Not found'}")
+        
+        return ContactInfo(
+            name=name,
+            email=email,
+            phone=phone,
+            linkedin=linkedin,
+            location=location
+        )
     
     def segment_by_sections(self, lines: List[Dict]) -> Dict[str, List[str]]:
         sections = {}

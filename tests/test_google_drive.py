@@ -1,73 +1,57 @@
-"""Test script to verify Google Drive access and file reading in a specific folder."""
+# tests/test_google_drive_service_account.py
+"""Test script to verify Google Drive access using Service Account."""
 
 import os
-import pickle
-from googleapiclient.discovery import build
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from googleapiclient.http import MediaIoBaseDownload
 import io
+from pathlib import Path
 import PyPDF2
 import docx
-from pathlib import Path
+
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 
 
-# Google Drive API scopes
-SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+# Service Account scopes
+SCOPES = [
+    'https://www.googleapis.com/auth/drive',
+    'https://www.googleapis.com/auth/spreadsheets'
+]
 
 
 def authenticate_google_drive():
-    """Authenticate with Google Drive API."""
-    print("\n🔐 Authenticating with Google Drive...")
+    """Authenticate with Google Drive API using Service Account."""
+    print("\n🔐 Authenticating with Google Drive (Service Account)...")
     
-    creds = None
+    creds_path = "credentials/credentials.json"
     
-    # Check if token.pickle exists
-    if os.path.exists('token.pickle'):
-        print("✅ Found existing token.pickle")
-        with open('token.pickle', 'rb') as token:
-            creds = pickle.load(token)
+    if not os.path.exists(creds_path):
+        raise FileNotFoundError(f"❌ {creds_path} not found!")
     
-    # If no valid credentials, authenticate
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            print("🔄 Refreshing expired token...")
-            creds.refresh(Request())
-        else:
-            print("🌐 Opening browser for authentication...")
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials/credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
+    try:
+        creds = Credentials.from_service_account_file(
+            creds_path,
+            scopes=SCOPES
+        )
         
-        # Save credentials for future use
-        with open('token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
-        print("✅ Token saved to token.pickle")
-    else:
-        print("✅ Using existing valid token")
-    
-    # Build the service
-    service = build('drive', 'v3', credentials=creds)
-    print("✅ Successfully connected to Google Drive API")
-    
-    return service
+        service = build('drive', 'v3', credentials=creds)
+        
+        print(f"✅ Successfully authenticated with Service Account")
+        print(f"   Email: {creds.service_account_email}")
+        
+        return service
+        
+    except Exception as e:
+        print(f"❌ Authentication failed: {e}")
+        raise
 
 
 def find_folder_by_name(service, folder_name):
-    """Find a folder ID by folder name.
-    
-    Args:
-        service: Authenticated Google Drive service
-        folder_name: Name of the folder to find
-        
-    Returns:
-        Folder ID if found, None otherwise
-    """
+    """Find a folder ID by folder name."""
     print(f"\n🔍 Searching for folder: '{folder_name}'...")
     
     try:
-        # Query for folders with the specified name
-        query = f"mimeType='application/vnd.google-apps.folder' and name='{folder_name}'"
+        query = f"mimeType='application/vnd.google-apps.folder' and name='{folder_name}' and trashed=false"
         
         results = service.files().list(
             q=query,
@@ -79,7 +63,21 @@ def find_folder_by_name(service, folder_name):
         folders = results.get('files', [])
         
         if not folders:
-            print(f"❌ Folder '{folder_name}' not found in your Google Drive")
+            print(f"❌ Folder '{folder_name}' not found")
+            print("\n⚠️  Important: Service accounts can only see files/folders that are explicitly shared with them!")
+            print(f"\nTo fix this:")
+            print(f"1. Go to your Google Drive")
+            print(f"2. Right-click on the '{folder_name}' folder")
+            print(f"3. Click 'Share'")
+            print(f"4. Add this email as an Editor:")
+            
+            # Try to get service account email
+            try:
+                about = service.about().get(fields='user').execute()
+                print(f"   {about['user']['emailAddress']}")
+            except:
+                print(f"   (Check your credentials.json for 'client_email')")
+            
             return None
         
         if len(folders) > 1:
@@ -93,26 +91,16 @@ def find_folder_by_name(service, folder_name):
         return folders[0]['id']
         
     except Exception as e:
-        print(f"❌ Error finding folder: {str(e)}")
+        print(f"❌ Error finding folder: {e}")
         return None
 
 
 def list_resume_files_in_folder(service, folder_id, folder_name):
-    """List all PDF and DOCX files in a specific folder.
-    
-    Args:
-        service: Authenticated Google Drive service
-        folder_id: ID of the folder to search in
-        folder_name: Name of the folder (for display)
-        
-    Returns:
-        List of files
-    """
+    """List all PDF and DOCX files in a specific folder."""
     print(f"\n📁 Searching for resume files in '{folder_name}' folder...")
     
     try:
-        # Query for PDF and DOCX files in the specific folder
-        query = f"(mimeType='application/pdf' or mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document') and '{folder_id}' in parents"
+        query = f"(mimeType='application/pdf' or mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document') and '{folder_id}' in parents and trashed=false"
         
         results = service.files().list(
             q=query,
@@ -142,7 +130,7 @@ def list_resume_files_in_folder(service, folder_id, folder_name):
         return files
         
     except Exception as e:
-        print(f"❌ Error listing files: {str(e)}")
+        print(f"❌ Error listing files: {e}")
         return []
 
 
@@ -158,8 +146,9 @@ def download_file(service, file_id, file_name):
         done = False
         while not done:
             status, done = downloader.next_chunk()
-            progress = int(status.progress() * 100)
-            print(f"   Progress: {progress}%", end='\r')
+            if status:
+                progress = int(status.progress() * 100)
+                print(f"   Progress: {progress}%", end='\r')
         
         print(f"\n✅ Download complete")
         
@@ -172,7 +161,7 @@ def download_file(service, file_id, file_name):
         return True
         
     except Exception as e:
-        print(f"❌ Error downloading file: {str(e)}")
+        print(f"❌ Error downloading file: {e}")
         return False
 
 
@@ -196,7 +185,7 @@ def extract_text_from_pdf(file_path):
         return text.strip()
         
     except Exception as e:
-        print(f"❌ Error extracting PDF: {str(e)}")
+        print(f"❌ Error extracting PDF: {e}")
         return None
 
 
@@ -213,7 +202,7 @@ def extract_text_from_docx(file_path):
         return text.strip()
         
     except Exception as e:
-        print(f"❌ Error extracting DOCX: {str(e)}")
+        print(f"❌ Error extracting DOCX: {e}")
         return None
 
 
@@ -241,7 +230,7 @@ def display_text_preview(text, max_chars=500):
 def main():
     """Main test function."""
     print("\n" + "=" * 80)
-    print("🧪 GOOGLE DRIVE ACCESS TEST - ASCEND_ROOT FOLDER")
+    print("🧪 GOOGLE DRIVE SERVICE ACCOUNT TEST - ASCEND_ROOT FOLDER")
     print("=" * 80)
     
     # Configuration
@@ -251,19 +240,17 @@ def main():
     try:
         service = authenticate_google_drive()
     except Exception as e:
-        print(f"\n❌ Authentication failed: {str(e)}")
+        print(f"\n❌ Authentication failed: {e}")
         print("\nPlease ensure:")
-        print("1. credentials/credentials.json exists")
-        print("2. You've set up OAuth consent screen in Google Cloud Console")
+        print("1. credentials/credentials.json is a SERVICE ACCOUNT key (not OAuth)")
+        print("2. The file contains 'type': 'service_account'")
+        print("3. Google Drive API is enabled")
         return
     
     # Step 2: Find the Ascend_Root folder
     folder_id = find_folder_by_name(service, FOLDER_NAME)
     
     if not folder_id:
-        print(f"\n⚠️  Could not find '{FOLDER_NAME}' folder")
-        print(f"\nPlease create a folder named '{FOLDER_NAME}' in your Google Drive")
-        print("and upload resume files (PDF or DOCX) to it.")
         return
     
     # Step 3: List files in the folder
@@ -335,14 +322,14 @@ def main():
             os.remove(selected_file['name'])
             print(f"✅ Deleted: {selected_file['name']}")
         except Exception as e:
-            print(f"❌ Could not delete file: {str(e)}")
+            print(f"❌ Could not delete file: {e}")
     
     print("\n" + "=" * 80)
     print("✅ TEST COMPLETE!")
     print("=" * 80)
-    print("\nYour Google Drive setup is working correctly! ✨")
+    print("\nYour Google Drive Service Account setup is working correctly! ✨")
     print(f"Files from '{FOLDER_NAME}' folder are accessible.")
-    print("\nYou can now run the full agent: python main.py")
+    print("\nYou can now proceed with building the Google Sheets exporter!")
 
 
 if __name__ == "__main__":
@@ -351,6 +338,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n\n⚠️  Test interrupted by user")
     except Exception as e:
-        print(f"\n❌ Unexpected error: {str(e)}")
+        print(f"\n❌ Unexpected error: {e}")
         import traceback
         traceback.print_exc()

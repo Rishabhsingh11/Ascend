@@ -10,7 +10,7 @@ sys.path.insert(0, str(project_root))
 from langgraph.graph import StateGraph, END
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, SystemMessage
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from src.state import (
     AgentState, ParsedResume, JobRoleMatch, 
@@ -31,6 +31,8 @@ from src.api.job_api_client import JobAPIClient
 from src.skills.skill_extractor import SkillExtractor
 from src.skills.skill_comparator import SkillComparator
 from src.skills.skill_gap_analyzer import SkillGapAnalyzer
+from src.csv_job_exporter import CSVJobExporter
+from src.email_sender import EmailSender
 
 
 def _handle_streaming_error(self, error: Exception, operation_name: str) -> Dict[str, Any]:
@@ -81,7 +83,7 @@ class JobSearchAgent:
         
         self.logger.info(f"✅ Initialized Ollama with model: {model_name or settings.ollama_model}")
         
-        self.drive_handler = GoogleDriveHandler(settings.google_credentials_path)
+        self.drive_handler = GoogleDriveHandler()
         self.text_extractor = ResumeTextExtractor()
         self.downloaded_files = []  # Track downloaded files for cleanup
         
@@ -110,6 +112,8 @@ class JobSearchAgent:
                 # NEW: Initialize JobStore for Phase 3
                 from src.jobs.job_store import JobStore
                 self.job_store = JobStore()
+                self.csv_exporter = CSVJobExporter()
+                self.email_sender = EmailSender()
                 self.logger.info("✅ Phase 2 and 3 components initialized")
             except Exception as e:
                 self.logger.warning(f"⚠️  Phase 2/3 initialization failed: {e}")
@@ -133,19 +137,23 @@ class JobSearchAgent:
         # ===== PHASE 2 NODES (NEW) =====
         workflow.add_node("fetch_job_postings", self._fetch_job_postings)
         workflow.add_node("analyze_skill_gaps", self._analyze_skill_gaps)
+        workflow.add_node("export_and_email", self._export_and_email_results)
         
         # ===== PHASE 1 EDGES (EXISTING) =====
         workflow.set_entry_point("download_resume")
         workflow.add_edge("download_resume", "parse_resume")
         workflow.add_edge("parse_resume", "analyze_job_roles")
         workflow.add_edge("analyze_job_roles", "generate_summary")
+    
         
         # ===== PHASE 2 EDGES (NEW) =====
         workflow.add_edge("generate_summary", "fetch_job_postings")
         workflow.add_edge("fetch_job_postings", "analyze_skill_gaps")
-        workflow.add_edge("analyze_skill_gaps", END)
+        workflow.add_edge("analyze_skill_gaps", "export_and_email")
+        workflow.add_edge("export_and_email", END)
         
         self.logger.debug("✅ LangGraph workflow built successfully (Phase 1 + Phase 2)")
+
         return workflow.compile()
     
     def _download_resume(self, state: AgentState) -> Dict[str, Any]:
@@ -206,13 +214,24 @@ class JobSearchAgent:
         with self.logger.timer("Parse Resume with PDFPlumber"):
             try:
                 self.logger.info("🔍 Parsing resume with PDFPlumber (layout-aware)...")
+                # Get the file name from state
+                file_name = state.get('file_name')
+
+                if not file_name:
+                    raise ValueError("No file_name in state")
+            
+                temp_file_path = Path("temp_resumes") / file_name
+
+                # Check if file exists
+                if not temp_file_path.exists():
+                    self.logger.error(f"File not found at: {temp_file_path}")
+                    raise FileNotFoundError(f"Resume file not found: {temp_file_path}") 
                 
                 # Use enhanced parser instead of LLM
                 parser = EnhancedResumeParser(
-                    file_path=state['file_name'],
+                    file_path=str(temp_file_path),
                     debug=True
                 )
-                
                 parsed_resume = parser.parse()
                 
                 self.logger.info("✅ Resume parsed successfully")
@@ -589,6 +608,7 @@ Provide detailed feedback."""
                 
                 return {
                     "skill_gap_analysis": skill_gap,
+                    'job_session_id': state.get('job_session_id'),
                     "current_step": "complete",
                     "messages": [HumanMessage(content="Skill gap analysis complete")]
                 }
@@ -946,10 +966,32 @@ Provide detailed feedback in JSON format."""
                         # Run Phase 2 nodes
                         job_state = self._fetch_job_postings(final_state)
                         final_state.update(job_state)
+
+                        # ✅ DEBUG: Check what we got
+                        self.logger.debug(f"After job fetch - job_session_id: {final_state.get('job_session_id')}")
+                        self.logger.debug(f"After job fetch - job_postings count: {len(final_state.get('job_postings', []))}")
                         
                         if final_state.get('job_postings'):
                             skill_state = self._analyze_skill_gaps(final_state)
                             final_state.update(skill_state)
+                            # ✅ DEBUG: Check if still there
+                            self.logger.debug(f"After skill analysis - job_session_id: {final_state.get('job_session_id')}")
+                            self.logger.debug(f"After skill analysis - skill_gap exists: {bool(final_state.get('skill_gap_analysis'))}")
+
+                            # ✅ NEW: Run Phase 3 - Export & Email
+                            if final_state.get('skill_gap_analysis'):
+                                self.logger.info("📧 Running Phase 3: Export & Email...")
+                                # ✅ DEBUG: Check before export
+                                self.logger.debug(f"Before export - job_session_id: {final_state.get('job_session_id')}")
+                                self.logger.debug(f"Before export - email: {final_state['parsed_resume'].contact_info.email if final_state.get('parsed_resume') else 'None'}")
+                                # Make sure we have job_session_id from skill gap analysis
+                                if not final_state.get('job_session_id') and skill_state.get('job_session_id'):
+                                    final_state['job_session_id'] = skill_state['job_session_id']
+                                export_state = self._export_and_email_results(final_state)
+                                final_state.update(export_state)
+                                # ✅ DEBUG: Check result
+                                self.logger.debug(f"After export - email_sent: {export_state.get('email_sent')}")
+                                self.logger.debug(f"After export - csv_path: {export_state.get('csv_path')}")
                     
                     # Cleanup and close
                     self.cleanup_downloaded_files()
@@ -1010,3 +1052,129 @@ Provide detailed feedback in JSON format."""
                 self.cleanup_downloaded_files()
                 doc_store.close()
                 raise
+
+    def _export_and_email_results(self, state: AgentState) -> Dict[str, Any]:
+        """Node: Export job recommendations to CSV and email to candidate."""
+        
+        self.logger.log_section("PHASE 3: EXPORTING & EMAILING RESULTS")
+        
+        with self.logger.timer("Export and Email"):
+            try:
+                # Skip if no jobs or email disabled
+                if not state.get('enable_skill_gap', True) or not state.get('job_postings'):
+                    self.logger.info("⏭️  Export skipped (no jobs found)")
+                    return {"current_step": "export_skipped"}
+                
+                # Get candidate info
+                parsed_resume = state.get('parsed_resume')
+                contact = parsed_resume.contact_info if parsed_resume else None
+                
+                if not contact or not contact.email:
+                    self.logger.warning("⚠️  No candidate email found, skipping email delivery")
+                    return {"current_step": "export_skipped"}
+                
+                candidate_name = contact.name or "Candidate"
+                # ✅ CLEAN EMAIL - Extract only email part if pipe-separated
+                raw_email = contact.email
+                candidate_email = self._extract_clean_email(raw_email)
+
+                if not candidate_email:
+                    self.logger.warning(f"⚠️  Invalid email format: {raw_email}")
+                    return {"current_step": "export_skipped"}
+                
+                # Get job info
+                jobs = state['job_postings']
+                job_roles = [r.role_title for r in state.get('job_role_matches', [])[:3]]
+                market_readiness = state.get('skill_gap_analysis')
+                market_readiness_score = market_readiness.overall_market_readiness if market_readiness else None
+                
+                self.logger.info(f"📊 Exporting {len(jobs)} jobs for {candidate_name}")
+                
+                # Create CSV
+                csv_path, _ = self.csv_exporter.create_job_recommendations_csv(
+                    jobs=jobs,
+                    candidate_name=candidate_name,
+                    job_roles=job_roles,
+                    market_readiness=market_readiness_score,
+                    upload_to_drive=False
+                )
+                
+                self.logger.info(f"✅ CSV created: {csv_path}")
+                
+                # Send email
+                self.logger.info(f"📧 Sending email to {candidate_email}...")
+                
+                email_success = self.email_sender.send_job_recommendations(
+                    recipient_email=candidate_email,
+                    candidate_name=candidate_name,
+                    csv_path=csv_path,
+                    job_count=len(jobs),
+                    market_readiness=market_readiness_score
+                )
+                
+                if email_success:
+                    self.logger.info(f"✅ Email sent successfully to {candidate_email}")
+                    
+                    # Update database with export info
+                    if self.job_store and state.get('job_session_id'):
+                        try:
+                            # You can add a method to track email sent
+                            session_id = state['job_session_id']
+                            # self.job_store.mark_email_sent(session_id, csv_path)
+                            pass
+                        except Exception as e:
+                            self.logger.warning(f"Failed to update email status in DB: {e}")
+                    
+                    return {
+                        "csv_path": csv_path,
+                        "email_sent": True,
+                        "current_step": "complete"
+                    }
+                else:
+                    self.logger.error("❌ Failed to send email")
+                    return {
+                        "csv_path": csv_path,
+                        "email_sent": False,
+                        "current_step": "email_failed"
+                    }
+            
+            except Exception as e:
+                self.logger.error(f"❌ Export/email failed: {str(e)}")
+                import traceback
+                self.logger.error(traceback.format_exc())
+                return {
+                    "error": f"Export error: {str(e)}",
+                    "current_step": "export_failed"
+                }
+
+    def _extract_clean_email(self, email_string: str) -> Optional[str]:
+        """
+        Extract clean email address from potentially pipe-separated string.
+        
+        Args:
+            email_string: Email string that might contain "email|LinkedIn|Portfolio"
+            
+        Returns:
+            Clean email address or None if invalid
+        """
+        import re
+        
+        if not email_string:
+            return None
+        
+        # If pipe-separated, split and find the email part
+        if '|' in email_string:
+            parts = email_string.split('|')
+            for part in parts:
+                part = part.strip()
+                if '@' in part and '.' in part:
+                    # Basic email validation
+                    if re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', part):
+                        return part.lower()
+        else:
+            # Single email, validate it
+            email_string = email_string.strip()
+            if re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email_string):
+                return email_string.lower()
+        
+        return None
